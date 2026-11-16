@@ -100,9 +100,10 @@ the browser count in `--stats` too. To stop it, click on Terminal and press Cont
 
 ## The website online (Streamlit Community Cloud, free)
 
-The same website at a private web address you can open from any device, no Terminal.
+The same website at a public web address anyone can open from any device, no Terminal.
 
-1. The code lives in a **private** GitHub repo (`.env` and `desk.db` are never uploaded).
+1. The code lives in a public GitHub repo. `.env` and `desk.db` are never uploaded, so your
+   keys stay private. Visitors can read the code but only you can change it.
 2. At https://share.streamlit.io, sign in with GitHub, click **Create app**, pick the repo,
    branch `main`, main file `app.py`. Under **Advanced settings**, paste your keys into
    **Secrets** like this:
@@ -110,17 +111,18 @@ The same website at a private web address you can open from any device, no Termi
    TWELVE_DATA_KEY = "..."
    FINNHUB_KEY = "..."
    ANTHROPIC_API_KEY = "..."
-   APP_PASSWORD = "pick-a-password"
-   ADMIN_PASSWORD = "a-second-password-only-you-know"
+   ADMIN_PASSWORD = "a-password-only-you-know"
    ```
-   `APP_PASSWORD` is what anyone (e.g. classmates) types to open the site. `ADMIN_PASSWORD`
-   unlocks the 🔄 Refresh button, which asks Claude for a new brief (a few cents a click).
-3. After it deploys, open the app's **Settings → Sharing** and make it private
-   ("Only specific people can view this app"), adding your own email.
+   `ADMIN_PASSWORD` unlocks the 🔄 Refresh button, which asks Claude for a new brief (a few
+   cents a click). Everyone else sees the brief that's already saved for the day.
+   Optional: add `APP_PASSWORD = "..."` if you ever want a password to open the site at all.
+
+On the website, the Drill and Stats pages ask for your name, so each person (you and your
+classmates) keeps their own scores. Use the same name each time.
 
 Good to know: the online app has its own database, separate from your Mac. Drill history
 there can reset when Streamlit restarts the app (after it sleeps from a few days of no use).
-The weekday email still comes from your Mac. Each brief costs a few cents either way.
+The weekday email still comes from your Mac.
 
 ## The brief by email every weekday morning (free)
 

@@ -244,16 +244,41 @@ def page_prices():
 
 
 # ---------------------------------------------------------------------------
+# Whose drill scores? (only matters on the shared website)
+# ---------------------------------------------------------------------------
+
+def player_name():
+    """
+    On the shared website (where ADMIN_PASSWORD is set), everyone types their name so their
+    drill scores and stats stay separate from everyone else's. Names aren't case sensitive:
+    "Hudson" and "hudson " are the same person. On your Mac it returns "" (just you).
+    Returns None if a name is needed but hasn't been typed yet.
+    """
+    if not os.getenv("ADMIN_PASSWORD"):
+        return ""
+    # Remembered in session_state (not as the widget's key) so it survives switching pages.
+    typed = st.text_input("Your name", value=st.session_state.get("player_name", ""),
+                          help="Your drill scores are saved under this name. Use the same name each time.")
+    st.session_state.player_name = typed
+    name = " ".join(typed.split()).lower()
+    if not name:
+        st.info("Type your name above (and press return) to see your own drill scores.")
+        return None
+    return name
+
+
+# ---------------------------------------------------------------------------
 # Page 3: the drill
 # ---------------------------------------------------------------------------
 
-def start_drill(conn):
+def start_drill(conn, player):
     fx_rows = get_fx_rows(conn)
     if not fx_rows:
         st.error("No FX data available, so there's nothing to build the drill from today.")
         return
     big_mac, _, _ = bigmac.get_item_prices({"name": "Big Mac", "source": "economist"})
-    st.session_state.questions = drill.make_questions(fx_rows, db.load_drill_results(conn), prices=big_mac)
+    history = db.load_drill_results(conn, player=player)
+    st.session_state.questions = drill.make_questions(fx_rows, history, prices=big_mac)
     st.session_state.index = 0
     st.session_state.results = []
     st.session_state.feedback = None
@@ -264,12 +289,15 @@ def page_drill():
     st.header("🧮 Math Drill")
     conn = connect()
     state = st.session_state
+    player = player_name()
+    if player is None:
+        return
 
     if "questions" not in state:
         st.write(f"{config.DRILL_QUESTIONS} timed questions built from today's real numbers. "
                  "Commas, $, %, k and m are all fine (e.g. 20k). Use a minus sign for losses or falls.")
         if st.button("▶️ Start today's drill", type="primary"):
-            start_drill(conn)
+            start_drill(conn, player)
             st.rerun()
         return
 
@@ -292,7 +320,7 @@ def page_drill():
             given = drill.parse_answer(typed)
             correct = drill.is_correct(q["type"], given, q["answer"])
             result = dict(q, your_answer=typed.strip(), correct=correct, seconds=seconds)
-            db.save_drill_result(conn, TODAY, result)
+            db.save_drill_result(conn, TODAY, result, player=player)
             state.results.append(result)
             if correct:
                 state.feedback = (True, f"✅ Correct ({drill.show_answer(q)}) in {seconds:.1f}s")
@@ -309,7 +337,7 @@ def page_drill():
     # Finished: the summary
     results = state.results
     if results:
-        s = drill.summary(results, db.load_drill_results(conn))
+        s = drill.summary(results, db.load_drill_results(conn, player=player))
         cols = st.columns(4)
         cols[0].metric("Score", f"{s['score']}/{s['count']}")
         cols[1].metric("Average time", f"{s['avg_seconds']:.1f}s")
@@ -338,7 +366,10 @@ def page_drill():
 
 def page_stats():
     st.header("📈 Drill Stats")
-    history = db.load_drill_results(connect())
+    player = player_name()
+    if player is None:
+        return
+    history = db.load_drill_results(connect(), player=player)
     if not history:
         st.write("No drill results yet. Do a drill first and your progress will show up here.")
         return

@@ -57,10 +57,15 @@ def create_tables(conn):
             seconds        REAL NOT NULL,     -- how long you took
             question       TEXT,              -- the question, so you can review it later
             your_answer    TEXT,
-            right_answer   REAL
+            right_answer   REAL,
+            player         TEXT NOT NULL DEFAULT ''  -- whose answer it is ('' = you, on your Mac)
         )
         """
     )
+    # Older desk.db files were made before the player column existed: add it to them.
+    columns = [row[1] for row in conn.execute("PRAGMA table_info(drill_results)")]
+    if "player" not in columns:
+        conn.execute("ALTER TABLE drill_results ADD COLUMN player TEXT NOT NULL DEFAULT ''")
     # Phase 2: the finished brief text, one per day, so re-running costs nothing
     conn.execute(
         """
@@ -145,25 +150,28 @@ def load_brief(conn, date):
 # Phase 4: drill results
 # ---------------------------------------------------------------------------
 
-def save_drill_result(conn, date, result):
-    """Save one answered question. `result` is a dict from modules/drill.py."""
+def save_drill_result(conn, date, result, player=""):
+    """
+    Save one answered question. `result` is a dict from modules/drill.py.
+    `player` is the name typed on the website, so each person keeps their own scores.
+    It stays "" on your Mac, where you're the only player.
+    """
     conn.execute(
         """
-        INSERT INTO drill_results (date, question_type, correct, seconds, question, your_answer, right_answer)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO drill_results
+            (date, question_type, correct, seconds, question, your_answer, right_answer, player)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (date, result["type"], int(result["correct"]), result["seconds"],
-         result["question"], result["your_answer"], result["answer"]),
+         result["question"], result["your_answer"], result["answer"], player),
     )
     conn.commit()
 
 
-def load_drill_results(conn, since_date=None):
-    """Return drill rows (oldest first), optionally only from `since_date` onward."""
-    if since_date:
-        cursor = conn.execute(
-            "SELECT * FROM drill_results WHERE date >= ? ORDER BY rowid", (since_date,)
-        )
-    else:
-        cursor = conn.execute("SELECT * FROM drill_results ORDER BY rowid")
+def load_drill_results(conn, since_date=None, player=""):
+    """Return one player's drill rows (oldest first), optionally only from `since_date` onward."""
+    cursor = conn.execute(
+        "SELECT * FROM drill_results WHERE player = ? AND date >= ? ORDER BY rowid",
+        (player, since_date or ""),
+    )
     return [dict(row) for row in cursor.fetchall()]
