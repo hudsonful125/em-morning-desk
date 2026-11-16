@@ -120,6 +120,32 @@ The same website at a public web address anyone can open from any device, no Ter
 On the website, the Drill and Stats pages ask for your name, so each person (you and your
 classmates) keeps their own scores. Use the same name each time.
 
+### Optional: "Sign in with Google" accounts
+
+With this set up, the Drill and Stats pages ask people to sign in with Google instead of
+typing a name, and each person's scores are tied to their email. The Brief and Prices pages
+stay open to everyone. Google handles the passwords; the app only sees name and email.
+
+1. Go to https://console.cloud.google.com and create a project (e.g. "EM Morning Desk").
+2. Open **Google Auth Platform** and click **Get started**. App name "EM Morning Desk",
+   your email as support email, Audience **External**, your email as contact, then **Create**.
+3. Open **Clients**, click **Create client**, choose **Web application**. Under
+   **Authorized redirect URIs** add your app's address followed by `/oauth2callback`, e.g.
+   `https://em-morning-desk-uftnu9qooug7cmfmqhladn.streamlit.app/oauth2callback`.
+   Click **Create** and keep the Client ID and Client secret window open.
+4. Open **Audience** and click **Publish app**, so anyone (not only test users) can sign in.
+5. In Streamlit's **Secrets**, add this at the very **bottom** (below your keys, because every
+   line after `[auth]` belongs to it):
+   ```toml
+   [auth]
+   redirect_uri = "https://em-morning-desk-uftnu9qooug7cmfmqhladn.streamlit.app/oauth2callback"
+   cookie_secret = "any-long-random-text-you-make-up"
+   client_id = "paste the Client ID"
+   client_secret = "paste the Client secret"
+   server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
+   ```
+   Remove the `[auth]` block again to go back to typing names.
+
 Good to know: the online app has its own database, separate from your Mac. Drill history
 there can reset when Streamlit restarts the app (after it sleeps from a few days of no use).
 The weekday email still comes from your Mac.

@@ -7,3 +7,4 @@ anthropic       # Claude API, writes the brief's words (Phase 2)
 rich            # pretty tables and colors in the terminal
 pytest          # runs the tests in the tests/ folder
 streamlit       # the web dashboard, app.py (Phase 6)
+Authlib         # "Sign in with Google" on the website (Streamlit needs it for st.login)

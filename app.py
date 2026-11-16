@@ -244,16 +244,34 @@ def page_prices():
 
 
 # ---------------------------------------------------------------------------
-# Whose drill scores? (only matters on the shared website)
+# Accounts: whose drill scores? (only matters on the shared website)
 # ---------------------------------------------------------------------------
+
+def sign_in_is_set_up():
+    """True if the [auth] section (Google sign-in) is in Streamlit's Secrets. See the README."""
+    try:
+        return "auth" in st.secrets
+    except Exception:  # no secrets file at all, e.g. on your Mac
+        return False
+
 
 def player_name():
     """
-    On the shared website (where ADMIN_PASSWORD is set), everyone types their name so their
-    drill scores and stats stay separate from everyone else's. Names aren't case sensitive:
-    "Hudson" and "hudson " are the same person. On your Mac it returns "" (just you).
-    Returns None if a name is needed but hasn't been typed yet.
+    Whose drill scores to show and save.
+      - Google sign-in set up (online): each person signs in, and their email is their account.
+      - Otherwise on the shared website (ADMIN_PASSWORD set): each person types a name.
+      - On your Mac: "" (just you).
+    Returns None if the person still needs to sign in or type a name.
     """
+    if sign_in_is_set_up():
+        if not st.user.get("is_logged_in", False):
+            st.info("Sign in so your drill scores are saved to your own account. "
+                    "We only see your name and email address.")
+            if st.button("Sign in with Google", type="primary"):
+                st.login()
+            return None
+        return (st.user.get("email") or "").lower()
+
     if not os.getenv("ADMIN_PASSWORD"):
         return ""
     # Remembered in session_state (not as the widget's key) so it survives switching pages.
@@ -265,6 +283,14 @@ def player_name():
         st.info("Type your name above (and press return) to see your own drill scores.")
         return None
     return name
+
+
+def account_sidebar():
+    """Shows who's signed in, with a Sign out button (only when Google sign-in is set up)."""
+    if sign_in_is_set_up() and st.user.get("is_logged_in", False):
+        st.sidebar.caption(f"Signed in as {st.user.email}")
+        if st.sidebar.button("Sign out"):
+            st.logout()
 
 
 # ---------------------------------------------------------------------------
@@ -431,4 +457,5 @@ if not check_password():
 st.sidebar.title("🌎 EM Morning Desk")
 choice = st.sidebar.radio("Go to", list(PAGES), label_visibility="collapsed")
 st.sidebar.caption("Work through the pages top to bottom: Brief → Prices → Drill.")
+account_sidebar()
 PAGES[choice]()
