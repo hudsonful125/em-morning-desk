@@ -1,0 +1,16 @@
+# Secrets: never commit your API keys
+.env
+
+# Local database and cached downloads (rebuilt automatically)
+desk.db
+cache/
+
+# Python clutter
+__pycache__/
+*.pyc
+.pytest_cache/
+venv/
+.venv/
+
+# Streamlit secrets (API keys for the online website)
+.streamlit/secrets.toml

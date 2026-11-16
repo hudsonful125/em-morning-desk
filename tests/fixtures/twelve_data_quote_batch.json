@@ -1,0 +1,5 @@
+{
+  "USD/BRL": {"symbol": "USD/BRL", "name": "US Dollar / Brazil Real", "exchange": "Forex", "datetime": "2026-11-12", "open": "5.56087", "high": "5.65404", "low": "5.55886", "close": "5.64778", "previous_close": "5.56145", "change": "0.08633", "percent_change": "1.55229", "is_market_open": true},
+  "USD/MXN": {"symbol": "USD/MXN", "name": "US Dollar / Mexican Peso", "exchange": "Forex", "datetime": "2026-11-12", "close": "17.20000", "previous_close": "17.55000"},
+  "USD/TRY": {"code": 400, "message": "symbol not found: USD/TRY", "status": "error"}
+}

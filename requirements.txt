@@ -1,0 +1,9 @@
+# Libraries this project uses. Install them all with:
+#   pip install -r requirements.txt
+requests        # calls the web APIs (Twelve Data, Finnhub)
+pandas          # handy tables of data (used more in later phases)
+python-dotenv   # loads your API keys from the .env file
+anthropic       # Claude API, writes the brief's words (Phase 2)
+rich            # pretty tables and colors in the terminal
+pytest          # runs the tests in the tests/ folder
+streamlit       # the web dashboard, app.py (Phase 6)
