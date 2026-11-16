@@ -441,6 +441,33 @@ def page_stats():
 
 
 # ---------------------------------------------------------------------------
+# Privacy page (Google sign-in needs a privacy policy link): open it with ?page=privacy
+# ---------------------------------------------------------------------------
+
+PRIVACY = """
+# Privacy
+
+EM Morning Desk is a free student project for practising emerging-market FX.
+
+**What we collect.** If you sign in with Google, the app receives your name and email address.
+Your email is used only to keep your drill answers and scores separate from other people's.
+If you don't sign in, nothing about you is stored.
+
+**What we store.** Your drill answers, whether they were right, and how long they took.
+The brief, rates and prices are the same for everyone and aren't linked to you.
+
+**What we don't do.** We don't sell or share your information, show ads, or email you.
+
+**Deleting your data.** The app's database is reset from time to time. To have your scores
+removed sooner, email the address shown on Google's sign-in screen.
+"""
+
+
+def page_privacy():
+    st.markdown(PRIVACY)
+
+
+# ---------------------------------------------------------------------------
 # Navigation (left sidebar)
 # ---------------------------------------------------------------------------
 
@@ -451,6 +478,10 @@ PAGES = {
     "📈 Stats": page_stats,
 }
 
+if st.query_params.get("page") == "privacy":
+    page_privacy()
+    st.stop()
+
 if not check_password():
     st.stop()
 
@@ -458,4 +489,5 @@ st.sidebar.title("🌎 EM Morning Desk")
 choice = st.sidebar.radio("Go to", list(PAGES), label_visibility="collapsed")
 st.sidebar.caption("Work through the pages top to bottom: Brief → Prices → Drill.")
 account_sidebar()
+st.sidebar.markdown("[Privacy](?page=privacy)")
 PAGES[choice]()
