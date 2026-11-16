@@ -119,10 +119,28 @@ def fx_table(rows):
 # Page 1: the brief
 # ---------------------------------------------------------------------------
 
+def refresh_button():
+    """
+    The Refresh button asks Claude for a new brief, which costs a few cents per click.
+    If ADMIN_PASSWORD is set (in Streamlit's Secrets), only someone who types it can refresh.
+    With no ADMIN_PASSWORD (e.g. on your own Mac), the button always works.
+    """
+    admin = os.getenv("ADMIN_PASSWORD")
+    if admin and not st.session_state.get("is_admin"):
+        typed = st.sidebar.text_input("Admin password (to refresh)", type="password")
+        if typed and hmac.compare_digest(typed, admin):
+            st.session_state.is_admin = True
+            st.rerun()
+        elif typed:
+            st.sidebar.error("Wrong admin password.")
+        return False
+    return st.sidebar.button("🔄 Refresh today's data",
+                             help="Re-download rates and headlines and ask Claude for a new brief (a few cents)")
+
+
 def page_brief():
     st.header(f"📰 The Brief: {date.today():%A %B %d}")
-    refresh = st.sidebar.button("🔄 Refresh today's data",
-                                help="Re-download rates and headlines and ask Claude for a new brief")
+    refresh = refresh_button()
     with st.spinner("Getting today's rates, headlines and brief (the first time each day takes about a minute)..."):
         r = routine.make_brief(connect(), refresh=refresh)
     show_warnings(r["warnings"])

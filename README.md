@@ -111,7 +111,10 @@ The same website at a private web address you can open from any device, no Termi
    FINNHUB_KEY = "..."
    ANTHROPIC_API_KEY = "..."
    APP_PASSWORD = "pick-a-password"
+   ADMIN_PASSWORD = "a-second-password-only-you-know"
    ```
+   `APP_PASSWORD` is what anyone (e.g. classmates) types to open the site. `ADMIN_PASSWORD`
+   unlocks the 🔄 Refresh button, which asks Claude for a new brief (a few cents a click).
 3. After it deploys, open the app's **Settings → Sharing** and make it private
    ("Only specific people can view this app"), adding your own email.
 
