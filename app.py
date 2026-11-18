@@ -18,6 +18,7 @@ is kept in `st.session_state`, a dictionary that lasts until you close the tab.
 """
 
 import hmac
+import json
 import os
 import time
 from datetime import date
@@ -29,8 +30,8 @@ from dotenv import load_dotenv
 
 import config
 import db
-from data import bigmac, fx
-from modules import accounts, brief, drill, prices, routine, stats
+from data import bigmac, fx, fx_history
+from modules import accounts, brief, drill, prices, routine, stats, usd_outlook, usd_trade
 
 load_dotenv()  # on your Mac: keys from .env. Online, Streamlit's "Secrets" provide them instead.
 
@@ -241,6 +242,201 @@ def page_prices():
                    f"as in the US. {name} prices are from {price_date or 'an unknown date'}{source}; "
                    f"exchange rates are today's. {item.get('note', '')}")
         st.divider()
+
+
+# ---------------------------------------------------------------------------
+# Page: USD vs emerging markets, and long-term USD scenarios
+# ---------------------------------------------------------------------------
+
+SCENARIO_NOTES = {
+    "Trend": "the last 5 years' average yearly move keeps going",
+    "Rate gap": "the rate moves by the interest-rate difference each year, the way forward rates are priced",
+    "Fair value": "the rate drifts toward the Big Mac fair (PPP) rate, closing half the gap every 5 years",
+}
+
+
+def get_history():
+    with st.spinner("Getting 6 years of monthly exchange rates (the first time takes about a minute)..."):
+        history, warnings = fx_history.get_history(os.getenv("TWELVE_DATA_KEY"))
+    show_warnings(warnings)
+    return history
+
+
+def page_usd():
+    st.header("💵 The Dollar vs Emerging Markets")
+    st.caption("Pairs are USD/XXX, so a positive % means the dollar got stronger (it buys more local currency).")
+    history = get_history()
+    if not history:
+        st.error("No exchange-rate history available yet. Check the Twelve Data key and try again in a minute.")
+        return
+    names = {c["pair"]: c for c in config.CURRENCIES}
+    rows = usd_outlook.changes(history)
+
+    # --- Looking back -------------------------------------------------------------
+    st.subheader("How the dollar has done")
+    cols = st.columns(3)
+    for col, label in zip(cols, usd_outlook.PERIODS):
+        avg = usd_outlook.basket_average(rows, label)
+        col.metric(f"Dollar vs EM basket, {label}", "n/a" if avg is None else f"{avg:+.1f}%",
+                   help="Equal-weighted average of the dollar's move against the 10 currencies.")
+
+    table = pd.DataFrame([{
+        "Country": names[r["pair"]]["country"], "Pair": r["pair"], "Latest": r["latest"],
+        **{label: r[label] for label in usd_outlook.PERIODS},
+    } for r in rows]).sort_values("5 years", ascending=False)
+    fmt = {label: st.column_config.NumberColumn(format="%+.1f%%") for label in usd_outlook.PERIODS}
+    st.dataframe(table, hide_index=True, width="stretch",
+                 column_config={"Latest": st.column_config.NumberColumn(format="%,.4f"), **fmt})
+
+    chart_rows = [{"Month": day, "Value": value, "Country": names[pair]["country"]}
+                  for pair, points in history.items() for day, value in usd_outlook.rebased(points)]
+    chosen = st.multiselect("Compare (5 years, start = 100; higher = stronger dollar)",
+                            [c["country"] for c in config.CURRENCIES],
+                            default=["Brazil", "Mexico", "India", "South Africa"])
+    data = pd.DataFrame([r for r in chart_rows if r["Country"] in chosen])
+    if not data.empty:
+        line = alt.Chart(data).mark_line().encode(
+            x=alt.X("Month:T", title=None, axis=alt.Axis(format="%b %Y")),
+            y=alt.Y("Value:Q", title="USD/XXX, start = 100 (higher = stronger dollar)", scale=alt.Scale(zero=False)),
+            color=alt.Color("Country:N", legend=alt.Legend(orient="top", title=None)),
+            tooltip=["Country", alt.Tooltip("Month:T", format="%b %Y"), alt.Tooltip("Value:Q", format=".1f")])
+        st.altair_chart(line.properties(height=320))
+    st.caption(f"Monthly closes from Twelve Data, latest month {rows[0]['as_of'][:7] if rows else 'n/a'}. "
+               "Turkey's lira fell so far that it can stretch the chart; untick it to see the others.")
+
+    # --- Looking ahead --------------------------------------------------------------
+    st.subheader("Long-term USD scenarios")
+    st.write("These are **what-if scenarios, not forecasts**. Each one follows a simple stated rule, "
+             "so you can see how the answer depends on the assumption:")
+    for name, note in SCENARIO_NOTES.items():
+        st.markdown(f"- **{name}:** {note}.")
+
+    rates, rate_dates = usd_outlook.load_policy_rates()
+    today_rates = {r["pair"]: r["rate"] for r in db.load_fx_rates(connect(), TODAY)}
+    big_mac, _, _ = bigmac.get_item_prices({"name": "Big Mac", "source": "economist"})
+    us_big_mac = big_mac.get("USD")
+
+    results = []
+    for r in rows:
+        pair = r["pair"]
+        code = pair.split("/")[1]
+        spot = today_rates.get(pair, r["latest"])
+        ppp = prices.implied_ppp(big_mac[code], us_big_mac) if us_big_mac and code in big_mac else None
+        paths = usd_outlook.scenarios(spot, r["cagr_5y"], rates.get(pair), rates.get("USD"), ppp)
+        results.append({"pair": pair, "spot": spot, "paths": paths})
+
+    horizon = st.radio("Years ahead", usd_outlook.HORIZONS, index=2, horizontal=True)
+    scen_table = pd.DataFrame([{
+        "Country": names[x["pair"]]["country"], "Today": x["spot"],
+        **{name: usd_outlook.dollar_move(x["spot"], path[horizon]) for name, path in x["paths"].items()},
+    } for x in results])
+    st.dataframe(scen_table, hide_index=True, width="stretch",
+                 column_config={"Today": st.column_config.NumberColumn(format="%,.4f"),
+                                **{n: st.column_config.NumberColumn(f"{n} (%)", format="%+.1f%%")
+                                   for n in SCENARIO_NOTES}})
+    averages = {}
+    for name in SCENARIO_NOTES:
+        moves = [usd_outlook.dollar_move(x["spot"], x["paths"][name][horizon])
+                 for x in results if name in x["paths"]]
+        if moves:
+            averages[name] = sum(moves) / len(moves)
+    st.write("Dollar vs the EM basket in " + f"{horizon} year{'s' if horizon > 1 else ''}: " +
+             ", ".join(f"**{n}** {v:+.1f}%" for n, v in averages.items()) + ".")
+
+    country = st.selectbox("See one currency's path", [names[x["pair"]]["country"] for x in results])
+    pick = next(x for x in results if names[x["pair"]]["country"] == country)
+    past = history[pick["pair"]][-61:]
+    last_day = date.fromisoformat(past[-1][0])
+    lines = [{"Date": d, "USD/XXX": v, "Line": "History"} for d, v in past]
+    for name, path in pick["paths"].items():
+        lines.append({"Date": TODAY, "USD/XXX": pick["spot"], "Line": name})
+        lines += [{"Date": last_day.replace(year=last_day.year + y).isoformat(), "USD/XXX": v, "Line": name}
+                  for y, v in path.items()]
+    chart = alt.Chart(pd.DataFrame(lines)).mark_line(point=True).encode(
+        x=alt.X("Date:T", title=None, axis=alt.Axis(format="%Y")),
+        y=alt.Y("USD/XXX:Q", title=f"{pick['pair']} (higher = stronger dollar)", scale=alt.Scale(zero=False)),
+        color=alt.Color("Line:N", scale=line_colours(["History", *pick["paths"]]), legend=alt.Legend(orient="top", title=None)),
+        strokeDash=alt.condition(alt.datum.Line == "History", alt.value([1, 0]), alt.value([5, 4])),
+        tooltip=["Line", alt.Tooltip("Date:T", format="%b %Y"), alt.Tooltip("USD/XXX:Q", format=",.4f")])
+    st.altair_chart(chart.properties(height=320))
+
+    st.caption(f"Policy rates used: US {rates.get('USD')}% (Fed range midpoint), {country} "
+               f"{rates.get(pick['pair'], 'n/a')}% (last changed {rate_dates.get(pick['pair'], 'n/a')}), "
+               f"from data/policy_rates.csv (cbrates.com, checked Nov 2026; edit the file when banks move). "
+               f"Fair value uses the latest Big Mac prices. Trend uses the last 5 years of monthly closes.")
+
+
+# ---------------------------------------------------------------------------
+# Page: the dollar's share of each country's trade (world map)
+# ---------------------------------------------------------------------------
+
+# Country outlines (Natural Earth, via the vega-datasets package), saved in the project so the
+# map doesn't depend on another website.
+WORLD_MAP = os.path.join("data", "world-110m.json")
+
+# One fixed colour per line, so "History" always looks the same on every chart
+COLOURS = {"History": "#555555", "Trend": RED, "Rate gap": "#e8a33d", "Fair value": BLUE, "Steady": "#8c6bb1"}
+
+
+def line_colours(names):
+    return alt.Scale(domain=names, range=[COLOURS[n] for n in names])
+
+
+@st.cache_data
+def world_outlines():
+    with open(WORLD_MAP, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def page_trade():
+    st.header("🗺️ How Much Each Country Trades in Dollars")
+    rows = usd_trade.load()
+    if not rows:
+        st.info("The world map is waiting for its data: the IMF's invoicing-currency dataset "
+                "(the share of each country's exports and imports priced in US dollars). "
+                "Once it's added as data/usd_invoicing.csv, the map appears here.")
+        return
+
+    kind = st.radio("Trade", ["Exports", "Imports"], horizontal=True)
+    column = "usd_export_share" if kind == "Exports" else "usd_import_share"
+    latest = usd_trade.latest_by_country(rows, column)
+    data = pd.DataFrame([{"id": r["iso_num"], "Country": r["country"], "Share": r[column], "Year": r["year"]}
+                         for r in latest])
+
+    world = alt.InlineData(values=world_outlines(),
+                           format=alt.DataFormat(type="topojson", feature="countries"))
+    background = alt.Chart(world).mark_geoshape(fill="#e6e6e6", stroke="white", strokeWidth=0.5)
+    shares = alt.Chart(world).mark_geoshape(stroke="white", strokeWidth=0.5).encode(
+        color=alt.Color("Share:Q", title=f"% of {kind.lower()} in USD",
+                        scale=alt.Scale(domain=[0, 100], scheme="blues")),
+        tooltip=["Country:N", alt.Tooltip("Share:Q", format=".0f", title="% in USD"), "Year:Q"],
+    ).transform_lookup(lookup="id", from_=alt.LookupData(data, "id", ["Country", "Share", "Year"])
+    ).transform_filter("isValid(datum.Share)")
+    st.altair_chart((background + shares).project("equalEarth").properties(height=420))
+    st.caption(f"Grey = no data. Each country shows its latest available year "
+               f"({int(data['Year'].min())} to {int(data['Year'].max())}). Source: IMF invoicing-currency "
+               "dataset (Boz, Casas, Georgiadis, Gopinath, Le Mezo, Mehl and Nguyen).")
+
+    st.subheader("Where is it heading? (scenarios, not forecasts)")
+    country = st.selectbox("Country", list(data.sort_values("Country")["Country"]))
+    iso3 = next(r["iso3"] for r in latest if r["country"] == country)
+    points = usd_trade.history(rows, iso3, column)
+    last_year = points[-1][0]
+    targets = [last_year + 5, last_year + 10]
+    paths = usd_trade.scenarios(points, targets)
+    lines = [{"Year": y, "Share": v, "Line": "History"} for y, v in points]
+    for name, path in paths.items():
+        lines.append({"Year": last_year, "Share": points[-1][1], "Line": name})
+        lines += [{"Year": y, "Share": v, "Line": name} for y, v in path.items()]
+    chart = alt.Chart(pd.DataFrame(lines)).mark_line(point=True).encode(
+        x=alt.X("Year:Q", axis=alt.Axis(format="d")),
+        y=alt.Y("Share:Q", title=f"% of {kind.lower()} in USD", scale=alt.Scale(domain=[0, 100])),
+        color=alt.Color("Line:N", scale=line_colours(["History", *paths]), legend=alt.Legend(orient="top", title=None)),
+        tooltip=["Line", "Year:Q", alt.Tooltip("Share:Q", format=".1f")])
+    st.altair_chart(chart.properties(height=300))
+    st.caption("Steady = the share stays at its latest level. Trend = the straight-line trend of the last "
+               f"{usd_trade.TREND_YEARS} years continues (needs 3+ years of data). Real shares move with "
+               "trade deals, sanctions and new payment systems, so treat these as what-ifs.")
 
 
 # ---------------------------------------------------------------------------
@@ -539,6 +735,8 @@ def page_privacy():
 PAGES = {
     "📰 Brief": page_brief,
     "🌍 Prices": page_prices,
+    "💵 USD vs EM": page_usd,
+    "🗺️ Dollar in Trade": page_trade,
     "🧮 Drill": page_drill,
     "📈 Stats": page_stats,
 }
