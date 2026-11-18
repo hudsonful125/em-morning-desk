@@ -1,5 +1,6 @@
 """
-data/fx_history.py: monthly exchange-rate history (about 6 years) for the USD vs EM pages.
+data/fx_history.py: monthly exchange-rate history (about 6 years) for the USD vs EM pages,
+plus the commodity funds in config.COMMODITIES (for the Carry & Commodities page).
 
 Twelve Data's /time_series endpoint gives one closing price per month. Each pair costs
 1 credit, the same as today's quotes, so we fetch at most 8 pairs a minute and keep a copy
@@ -66,6 +67,11 @@ def fetch_history(pairs, api_key, sleep=time.sleep):
     return history, errors
 
 
+def wanted_symbols():
+    """The 10 currency pairs plus the commodity funds (see config.COMMODITIES)."""
+    return [c["pair"] for c in config.CURRENCIES] + [c["symbol"] for c in config.COMMODITIES]
+
+
 def get_history(api_key, refresh=False):
     """Monthly history for all tracked pairs, from the cache when it's fresh. Returns (history, warnings)."""
     cached = {}
@@ -73,15 +79,17 @@ def get_history(api_key, refresh=False):
         with open(CACHE_PATH, encoding="utf-8") as f:
             cached = json.load(f)
         fresh = time.time() - os.path.getmtime(CACHE_PATH) < CACHE_DAYS * 86400
-        if fresh and not refresh:
+        complete = all(symbol in cached for symbol in wanted_symbols())
+        if fresh and complete and not refresh:
             return {k: [tuple(p) for p in v] for k, v in cached.items()}, []
     if not api_key:
-        return cached, ["No TWELVE_DATA_KEY, so the rate history couldn't be downloaded."]
-    history, errors = fetch_history([c["pair"] for c in config.CURRENCIES], api_key)
+        return ({k: [tuple(p) for p in v] for k, v in cached.items()},
+                ["No TWELVE_DATA_KEY, so the rate history couldn't be downloaded."])
+    history, errors = fetch_history(wanted_symbols(), api_key)
+    # Keep anything we had before that didn't come back this time (e.g. one symbol failed).
+    history = dict({k: [tuple(p) for p in v] for k, v in cached.items()}, **history)
     if history:
         os.makedirs("cache", exist_ok=True)
         with open(CACHE_PATH, "w", encoding="utf-8") as f:
             json.dump(history, f)
-    else:
-        history = {k: [tuple(p) for p in v] for k, v in cached.items()}
     return history, errors

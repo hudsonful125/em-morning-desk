@@ -88,6 +88,12 @@ def load_policy_rates(path=RATES_PATH):
     return rates, dates
 
 
+def rates_checked(path=RATES_PATH):
+    """The oldest 'checked' date in data/policy_rates.csv (when someone last confirmed the rates)."""
+    with open(path, newline="", encoding="utf-8") as f:
+        return min(row["checked"] for row in csv.DictReader(f))
+
+
 def trend_path(spot, cagr_pct, years):
     return spot * (1 + cagr_pct / 100) ** years
 

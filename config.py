@@ -100,3 +100,19 @@ DRILL_QUESTIONS = 7
 
 # Size of the position in P&L questions, in US dollars.
 DRILL_PNL_NOTIONAL = 1_000_000
+
+
+# ---------------------------------------------------------------------------
+# Commodities that move EM currencies
+# ---------------------------------------------------------------------------
+# Twelve Data's free plan doesn't include raw futures prices, so we use US-listed funds
+# (ETFs) that track each commodity. Their % moves follow the commodity closely.
+#   linked = the currencies of big exporters of that commodity (shown in the brief)
+COMMODITIES = [
+    {"symbol": "USO",  "name": "Oil",      "fund": "United States Oil Fund (USO)",
+     "linked": ["USD/COP", "USD/MXN"]},
+    {"symbol": "CPER", "name": "Copper",   "fund": "United States Copper Index Fund (CPER)",
+     "linked": ["USD/CLP"]},
+    {"symbol": "SOYB", "name": "Soybeans", "fund": "Teucrium Soybean Fund (SOYB)",
+     "linked": ["USD/BRL"]},
+]

@@ -30,8 +30,8 @@ from dotenv import load_dotenv
 
 import config
 import db
-from data import bigmac, fx, fx_history
-from modules import accounts, brief, drill, prices, routine, stats, usd_outlook, usd_trade
+from data import bigmac, cb_calendar, commodities, fx, fx_history
+from modules import accounts, brief, carry, drill, prices, routine, stats, usd_outlook, usd_trade
 
 load_dotenv()  # on your Mac: keys from .env. Online, Streamlit's "Secrets" provide them instead.
 
@@ -158,6 +158,11 @@ def page_brief():
         for m in r["summary"]["top_movers"]:
             dot = "🔴" if m["direction"] == "weakened" else "🟢"
             st.markdown(f"{dot} {brief.describe_move(m)}")
+        if r.get("commodities"):
+            st.subheader("🛢️ Commodities")
+            for c in r["commodities"]:
+                arrow = "▲" if c["pct_change"] > 0 else "▼" if c["pct_change"] < 0 else "■"
+                st.markdown(f"{arrow} **{c['name']}** {c['pct_change']:+.2f}% *({c['fund']})*")
         st.subheader("🏦 Central bank decisions")
         st.caption("Next 14 days, from data/central_bank_calendar.csv")
         for line in r["meetings"] or ["None scheduled."]:
@@ -265,11 +270,13 @@ def get_history():
 def page_usd():
     st.header("💵 The Dollar vs Emerging Markets")
     st.caption("Pairs are USD/XXX, so a positive % means the dollar got stronger (it buys more local currency).")
+    stale_rates_check()
     history = get_history()
     if not history:
         st.error("No exchange-rate history available yet. Check the Twelve Data key and try again in a minute.")
         return
     names = {c["pair"]: c for c in config.CURRENCIES}
+    history = {pair: points for pair, points in history.items() if pair in names}
     rows = usd_outlook.changes(history)
 
     # --- Looking back -------------------------------------------------------------
@@ -364,6 +371,95 @@ def page_usd():
                f"{rates.get(pick['pair'], 'n/a')}% (last changed {rate_dates.get(pick['pair'], 'n/a')}), "
                f"from data/policy_rates.csv (cbrates.com, checked Nov 2026; edit the file when banks move). "
                f"Fair value uses the latest Big Mac prices. Trend uses the last 5 years of monthly closes.")
+
+
+# ---------------------------------------------------------------------------
+# Page: carry trade and commodities
+# ---------------------------------------------------------------------------
+
+def stale_rates_check():
+    """⏰ warnings when a central bank has met since data/policy_rates.csv was last checked."""
+    for message in routine.rate_reminders(date.today()):
+        st.warning(f"⏰ {message}")
+
+
+def page_carry():
+    st.header("💰 Carry Trade & Commodities")
+    stale_rates_check()
+    history = get_history()
+    names = {c["pair"]: c for c in config.CURRENCIES}
+    rates, rate_dates = usd_outlook.load_policy_rates()
+    moves = {r["pair"]: r["1 year"] for r in usd_outlook.changes(
+        {p: v for p, v in history.items() if p in names})}
+    rows = carry.carry_table(rates, {p: v for p, v in history.items() if p in names}, moves)
+
+    st.subheader("The carry trade table")
+    st.write("Borrow dollars at the US rate, hold the EM currency and earn its higher rate. "
+             "**Carry** is the yearly gap you earn, as long as the currency doesn't fall by more than that. "
+             "**Volatility** is how much the currency usually swings in a year, so **carry-to-vol** is a "
+             "rough reward-for-risk score: higher is better.")
+    if not rows:
+        st.error("No exchange-rate history available yet. Try again in a minute.")
+    else:
+        table = pd.DataFrame([{
+            "Country": names[r["pair"]]["country"], "Policy rate": r["local_rate"], "Carry vs US": r["carry"],
+            "Volatility": r["vol"], "Carry-to-vol": r["carry_to_vol"], "Last year (approx.)": r["past_year"],
+        } for r in rows])
+        pct = lambda label: st.column_config.NumberColumn(label, format="%.2f%%")
+        st.dataframe(table, hide_index=True, width="stretch", column_config={
+            "Policy rate": pct("Policy rate"), "Carry vs US": pct("Carry vs US"),
+            "Volatility": pct("Volatility (yearly)"),
+            "Carry-to-vol": st.column_config.NumberColumn(format="%.2f"),
+            "Last year (approx.)": st.column_config.NumberColumn(format="%+.1f%%")})
+
+        chart_data = table.dropna(subset=["Carry-to-vol"])
+        bars = alt.Chart(chart_data).mark_bar(cornerRadiusEnd=4, height=16, color=BLUE).encode(
+            x=alt.X("Carry-to-vol:Q", title="Carry-to-vol (higher = more carry per unit of risk)"),
+            y=alt.Y("Country:N", sort="-x", title=None),
+            tooltip=["Country", alt.Tooltip("Carry vs US:Q", format=".2f"),
+                     alt.Tooltip("Volatility:Q", format=".2f"), alt.Tooltip("Carry-to-vol:Q", format=".2f")])
+        st.altair_chart(bars.properties(height=alt.Step(28)))
+        st.caption(f"Carry = local policy rate minus the US rate ({rates['USD']}%, Fed range midpoint), from "
+                   f"data/policy_rates.csv (last checked {usd_outlook.rates_checked()}). Volatility = yearly swing "
+                   f"of USD/XXX from the last {carry.VOL_MONTHS} monthly closes. Last year = carry minus the "
+                   "dollar's 1-year gain against the currency, using today's rates (real trades use each "
+                   "day's rates and short-term market rates, not policy rates).")
+
+    st.subheader("🛢️ Commodities and EM currencies")
+    moves_today, warnings = commodities.get_commodity_moves(connect(), TODAY, os.getenv("TWELVE_DATA_KEY"))
+    show_warnings(warnings)
+    if moves_today:
+        cols = st.columns(len(moves_today))
+        for col, c in zip(cols, moves_today):
+            col.metric(c["name"], f"{c['rate']:,.2f}", f"{c['pct_change']:+.2f}%", help=c["fund"])
+        st.caption("Latest close of each commodity fund vs the close before. Funds stand in for the "
+                   "commodity itself, since futures prices aren't on Twelve Data's free plan.")
+
+    links = carry.commodity_links(history, [c["pair"] for c in config.CURRENCIES],
+                                  [c["symbol"] for c in config.COMMODITIES])
+    if links:
+        by_symbol = {c["symbol"]: c["name"] for c in config.COMMODITIES}
+        heat = pd.DataFrame([{"Country": names[pair]["country"], "Commodity": by_symbol[symbol],
+                              "Correlation": value}
+                             for (pair, symbol), value in links.items() if value is not None])
+        base = alt.Chart(heat).encode(
+            x=alt.X("Commodity:N", title=None, sort=[c["name"] for c in config.COMMODITIES],
+                    axis=alt.Axis(orient="top", labelAngle=0)),
+            y=alt.Y("Country:N", title=None))
+        cells = base.mark_rect().encode(
+            color=alt.Color("Correlation:Q", scale=alt.Scale(domain=[-1, 1], scheme="redblue"),
+                            legend=alt.Legend(title="Correlation")),
+            tooltip=["Country", "Commodity", alt.Tooltip("Correlation:Q", format=".2f")])
+        labels = base.mark_text(fontSize=13).encode(
+            text=alt.Text("Correlation:Q", format=".2f"),
+            color=alt.condition("abs(datum.Correlation) > 0.5", alt.value("white"), alt.value("black")))
+        st.altair_chart((cells + labels).properties(height=alt.Step(30), width=420))
+        st.caption(f"How each currency moves with each commodity, from the last {carry.CORRELATION_MONTHS} "
+                   "monthly changes. +1 = they always rise together (blue), 0 = no link, negative = they move "
+                   "in opposite directions (red). Big exporters: Colombia and Mexico (oil), Chile (copper), "
+                   "Brazil (soybeans). Correlation isn't cause and effect.")
+    else:
+        st.info("The commodity history will appear here once it has downloaded.")
 
 
 # ---------------------------------------------------------------------------
@@ -739,6 +835,7 @@ PAGES = {
     "📰 Brief": page_brief,
     "🌍 Prices": page_prices,
     "💵 USD vs EM": page_usd,
+    "💰 Carry & Commodities": page_carry,
     "🗺️ Dollar in Trade": page_trade,
     "🧮 Drill": page_drill,
     "📈 Stats": page_stats,

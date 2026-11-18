@@ -10,8 +10,8 @@ from datetime import date
 
 import config
 import db
-from data import bigmac, cb_calendar, fx, news
-from modules import archive, brief, prices
+from data import bigmac, cb_calendar, commodities, fx, news
+from modules import archive, brief, carry, prices, usd_outlook
 
 
 def todays_meetings(today=None):
@@ -19,6 +19,18 @@ def todays_meetings(today=None):
     today = today or date.today()
     meetings = cb_calendar.upcoming(cb_calendar.load_meetings(), today)
     return [cb_calendar.describe(m, today) for m in meetings]
+
+
+def rate_reminders(today=None):
+    """Warnings that data/policy_rates.csv may be out of date (see carry.stale_rate_warnings)."""
+    try:
+        rates, _ = usd_outlook.load_policy_rates()
+        checked = usd_outlook.rates_checked()
+    except (OSError, KeyError, ValueError):
+        return ["Couldn't read data/policy_rates.csv."]
+    country_to_pair = {c["country"]: c["pair"] for c in config.CURRENCIES if c["pair"] in rates}
+    return carry.stale_rate_warnings(checked, cb_calendar.load_meetings(), country_to_pair,
+                                     today or date.today())
 
 
 def price_lines(fx_rows):
@@ -35,13 +47,13 @@ def price_lines(fx_rows):
 def make_brief(conn, today=None, refresh=False):
     """
     Get today's numbers and headlines, then today's brief (saved copy, or a new one from Claude).
-    Returns a dict: fx_rows, headlines, summary, meetings, text, error, warnings.
+    Returns a dict: fx_rows, headlines, summary, meetings, commodities, text, error, warnings.
     `text` is None if there was no FX data or Claude couldn't write the brief (see `error`).
     Also saves briefs/<today>.md whenever there is a brief.
     """
     today = today or date.today()
     day = today.isoformat()
-    result = {"fx_rows": [], "headlines": [], "summary": None, "meetings": [],
+    result = {"fx_rows": [], "headlines": [], "summary": None, "meetings": [], "commodities": [],
               "text": None, "error": None, "warnings": []}
 
     # 1. Numbers (Python)
@@ -57,12 +69,16 @@ def make_brief(conn, today=None, refresh=False):
     result["warnings"] += warnings
     summary = brief.build_summary(fx_rows, headlines)
     meetings = todays_meetings(today)
-    result.update(fx_rows=fx_rows, headlines=headlines, summary=summary, meetings=meetings)
+    commodity_moves, warnings = commodities.get_commodity_moves(
+        conn, day, os.getenv("TWELVE_DATA_KEY"), refresh=refresh)
+    result["warnings"] += warnings
+    result.update(fx_rows=fx_rows, headlines=headlines, summary=summary, meetings=meetings,
+                  commodities=commodity_moves)
 
     # 3. Words (Claude): today's saved copy unless refresh
     text = None if refresh else db.load_brief(conn, day)
     if text is None:
-        fact_sheet = brief.summary_to_text(summary, headlines, meetings)
+        fact_sheet = brief.summary_to_text(summary, headlines, meetings, commodity_moves)
         text, error = brief.write_brief(fact_sheet, os.getenv("ANTHROPIC_API_KEY"))
         if error:
             result["error"] = error

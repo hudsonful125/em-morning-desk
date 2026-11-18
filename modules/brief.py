@@ -26,6 +26,9 @@ date, or other figure. Copy numbers exactly as given (you may round to 1 decimal
 Do not re-derive direction from the USD/XXX quote.
 - Only link a move to a cause if a listed headline supports it. Otherwise say the move \
 happened without claiming why, or say "possibly" and name the headline you are leaning on.
+- If the fact sheet lists commodity moves, you may connect a commodity move to a big \
+exporter's currency only when both moved in the matching direction (commodity up and the \
+exporter's currency stronger, or both down/weaker), and say "possibly" since it's a correlation.
 - Plain, confident desk language. No hype, no investment advice.
 
 Write exactly these three sections in Markdown:
@@ -105,10 +108,20 @@ def describe_move(m):
             f"{abs(m['pct_change']):.2f}% vs USD ({m['pair']} {m['prev_close']:,.4f} -> {m['rate']:,.4f})")
 
 
-def summary_to_text(summary, headlines, meetings=None):
+def describe_commodity(c, names):
+    """One fact-sheet line for a commodity move, naming the currencies it matters for."""
+    direction = "rose" if c["pct_change"] > 0 else "fell" if c["pct_change"] < 0 else "was unchanged"
+    linked = ", ".join(f"{names[p]['country']} {names[p]['currency']} ({p.split('/')[1]})"
+                       for p in c["linked"] if p in names)
+    return (f"{c['name']} {direction} {abs(c['pct_change']):.2f}% (tracked by the {c['fund']}); "
+            f"big exporters among our currencies: {linked or 'none'}")
+
+
+def summary_to_text(summary, headlines, meetings=None, commodities=None):
     """
     Turn the summary dict + headlines into the plain-text fact sheet Claude reads.
     `meetings` = optional list of lines about upcoming central bank decisions.
+    `commodities` = optional list of commodity moves from data/commodities.py.
     """
     lines = ["FACT SHEET (all numbers calculated in Python; use only these)", ""]
 
@@ -138,6 +151,13 @@ def summary_to_text(summary, headlines, meetings=None):
             lines.append(f"- [{h['sentiment']}] {h['headline']} ({h['source']})")
     else:
         lines.append("- (no headlines available today)")
+
+    if commodities:
+        names = {c["pair"]: c for c in config.CURRENCIES}
+        lines.append("")
+        lines.append("Commodity moves (last close vs the one before):")
+        for c in commodities:
+            lines.append(f"- {describe_commodity(c, names)}")
 
     if meetings is not None:
         lines.append("")

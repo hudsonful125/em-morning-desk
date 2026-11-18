@@ -1,12 +1,12 @@
-country,pair,rate,last_change,source
-United States,,3.875,2026-09,"cbrates.com (Fed funds target range 3.75-4.00; midpoint used)"
-Brazil,USD/BRL,13.75,2026-09-17,cbrates.com
-Mexico,USD/MXN,6.25,2026-11-05,cbrates.com
-Chile,USD/CLP,4.50,2025-12-16,Wikipedia list of central bank rates
-Colombia,USD/COP,12.25,2026-09-30,Wikipedia list of central bank rates
-South Africa,USD/ZAR,7.25,2026-09-23,cbrates.com
-Turkey,USD/TRY,36.00,2026-10-22,cbrates.com
-India,USD/INR,5.50,2026-10-07,cbrates.com
-Indonesia,USD/IDR,5.75,2026-06-18,Wikipedia list of central bank rates
-South Korea,USD/KRW,3.00,2026-08-27,cbrates.com
-China,USD/CNY,3.00,2025-05-20,"cbrates.com (1-year loan prime rate)"
+country,pair,rate,last_change,source,checked
+United States,,3.875,2026-09,cbrates.com (Fed funds target range 3.75-4.00; midpoint used),2026-11-18
+Brazil,USD/BRL,13.75,2026-09-17,cbrates.com,2026-11-18
+Mexico,USD/MXN,6.25,2026-11-05,cbrates.com,2026-11-18
+Chile,USD/CLP,4.50,2025-12-16,Wikipedia list of central bank rates,2026-11-18
+Colombia,USD/COP,12.25,2026-09-30,Wikipedia list of central bank rates,2026-11-18
+South Africa,USD/ZAR,7.25,2026-09-23,cbrates.com,2026-11-18
+Turkey,USD/TRY,36.00,2026-10-22,cbrates.com,2026-11-18
+India,USD/INR,5.50,2026-10-07,cbrates.com,2026-11-18
+Indonesia,USD/IDR,5.75,2026-06-18,Wikipedia list of central bank rates,2026-11-18
+South Korea,USD/KRW,3.00,2026-08-27,cbrates.com,2026-11-18
+China,USD/CNY,3.00,2025-05-20,cbrates.com (1-year loan prime rate),2026-11-18

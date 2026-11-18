@@ -55,6 +55,9 @@ def main():
     log(f"Brief saved to briefs/{today.isoformat()}.md")
     body = archive.brief_markdown(today.isoformat(), r["summary"], r["headlines"], r["text"],
                                   r["meetings"], routine.price_lines(r["fx_rows"]))
+    reminders = routine.rate_reminders(today)
+    if reminders:  # a central bank has met, so the rates file may need updating
+        body += "\n\n## ⏰ Reminder\n\n" + "\n".join(f"- {m}" for m in reminders) + "\n"
     error = emailer.send_email(f"EM Morning Desk: {today:%a %b %d}", body)
     if error:
         log(error)

@@ -173,6 +173,28 @@ the brief, and Claude mentions them in "What to watch". There's no free API for 
 add next year's dates to the CSV as the central banks publish them. Rows marked
 `cbrates.com` came from a third-party list rather than the bank's own site.
 
+## Carry trade and commodities
+
+The **💰 Carry & Commodities** page ranks the 10 currencies by **carry** (their central bank
+rate minus the US rate) next to **volatility** (how much each one usually swings in a year,
+from the last 36 monthly closes), and **carry-to-vol** (carry divided by volatility, a rough
+reward-for-risk score). Below it are today's moves in oil, copper and soybeans, plus a heatmap
+of how each currency has moved with each one over the last 5 years. The commodities come from
+US funds that track them (USO, CPER, SOYB), because futures prices aren't on Twelve Data's free
+plan. The brief lists the commodity moves too, and Claude may link one to an exporter's currency.
+
+## Keeping the interest rates up to date
+
+`data/policy_rates.csv` holds each central bank's rate. They change only when a bank meets,
+so the site and the brief warn you (⏰) when a bank in `data/central_bank_calendar.csv` has met
+since you last checked, or when nobody has checked for 45 days. To update:
+
+1. Look up the new rate (for example on cbrates.com or the bank's own site).
+2. On GitHub, open `data/policy_rates.csv` and click the pencil icon to edit it.
+3. Change that bank's `rate` and `last_change`, then set the `checked` date on **every** row
+   to today (YYYY-MM-DD), even if the rate didn't change. That clears the warning.
+4. Click **Commit changes**. The website picks it up within a minute.
+
 ## The full routine, stats and saved briefs
 
 Plain `python3 main.py` shows the brief, then the Big Mac table, then asks whether to start
@@ -215,6 +237,8 @@ modules/usd_outlook.py USD vs EM history (1M/1Y/5Y) and the long-term scenarios
 data/fx_history.py monthly rate history from Twelve Data (cached a week in cache/)
 data/policy_rates.csv central bank rates used by the Rate gap scenario (edit when banks move)
 modules/usd_trade.py the dollar's share of each country's trade (data/usd_invoicing.csv)
+modules/carry.py  carry table, commodity links, stale-rate warnings
+data/commodities.py today's oil, copper and soybean fund moves
 modules/accounts.py email + password accounts and saved drill scores on the website (Supabase)
 modules/emailer.py sends the brief through Gmail
 morning_job.py    the hands-off brief the schedule runs

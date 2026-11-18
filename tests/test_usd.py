@@ -80,9 +80,14 @@ def test_fetch_history_batches_and_retries(monkeypatch):
 def test_history_cache(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "cache").mkdir()
+    full = {s: [["2026-11-01", 5.5]] for s in fx_history.wanted_symbols()}
+    (tmp_path / "cache" / "fx_history.json").write_text(json.dumps(full))
+    history, warnings = fx_history.get_history(None)
+    assert history["USD/BRL"] == [("2026-11-01", 5.5)] and warnings == []
+    # An older cache without the commodity funds counts as out of date
     (tmp_path / "cache" / "fx_history.json").write_text(json.dumps({"USD/BRL": [["2026-11-01", 5.5]]}))
     history, warnings = fx_history.get_history(None)
-    assert history == {"USD/BRL": [("2026-11-01", 5.5)]} and warnings == []
+    assert "USD/BRL" in history and "No TWELVE_DATA_KEY" in warnings[0]
 
 
 def test_trade_scenarios(tmp_path):
