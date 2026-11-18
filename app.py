@@ -414,15 +414,18 @@ def page_trade():
     ).transform_filter("isValid(datum.Share)")
     st.altair_chart((background + shares).project("equalEarth").properties(height=420))
     st.caption(f"Grey = no data. Each country shows its latest available year "
-               f"({int(data['Year'].min())} to {int(data['Year'].max())}). Source: IMF invoicing-currency "
-               "dataset (Boz, Casas, Georgiadis, Gopinath, Le Mezo, Mehl and Nguyen).")
+               f"({int(data['Year'].min())} to {int(data['Year'].max())}). Source: Boz, Casas, Georgiadis, "
+               "Gopinath, Le Mezo, Mehl and Nguyen (2022), \"Patterns of invoicing currency in global trade: "
+               "New evidence\", Journal of International Economics, data on Mendeley Data (CC BY 4.0). "
+               "The data end in 2019, and Mexico and China don't report invoicing currencies.")
 
     st.subheader("Where is it heading? (scenarios, not forecasts)")
-    country = st.selectbox("Country", list(data.sort_values("Country")["Country"]))
+    options = list(data.sort_values("Country")["Country"])
+    country = st.selectbox("Country", options, index=options.index("Brazil") if "Brazil" in options else 0)
     iso3 = next(r["iso3"] for r in latest if r["country"] == country)
     points = usd_trade.history(rows, iso3, column)
     last_year = points[-1][0]
-    targets = [last_year + 5, last_year + 10]
+    targets = [2030, 2035]
     paths = usd_trade.scenarios(points, targets)
     lines = [{"Year": y, "Share": v, "Line": "History"} for y, v in points]
     for name, path in paths.items():

@@ -1,8 +1,10 @@
 """
 modules/usd_trade.py: how much of each country's trade is invoiced (priced) in US dollars.
 
-The data come from the IMF's invoicing-currency dataset (Boz, Casas, Georgiadis, Gopinath,
-Le Mezo, Mehl and Nguyen, "Patterns in Invoicing Currency in Global Trade"), saved as
+The data come from the invoicing-currency dataset of Boz, Casas, Georgiadis, Gopinath,
+Le Mezo, Mehl and Nguyen (2022), "Patterns of invoicing currency in global trade: New evidence",
+Journal of International Economics 136 (replication data on Mendeley Data, doi 10.17632/6z6w78968m.1,
+CC BY 4.0, file all_countries_update.dta). 110 countries, 1989-2019. Saved as
 data/usd_invoicing.csv with one row per country per year:
 
     country, iso3, iso_num, year, usd_export_share, usd_import_share
