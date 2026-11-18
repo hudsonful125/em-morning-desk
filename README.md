@@ -117,34 +117,35 @@ The same website at a public web address anyone can open from any device, no Ter
    cents a click). Everyone else sees the brief that's already saved for the day.
    Optional: add `APP_PASSWORD = "..."` if you ever want a password to open the site at all.
 
-On the website, the Drill and Stats pages ask for your name, so each person (you and your
-classmates) keeps their own scores. Use the same name each time.
+Without accounts (below), the Drill and Stats pages ask for a name, so each person keeps
+their own scores. Use the same name each time.
 
-### Optional: "Sign in with Google" accounts
+### Accounts with email and password (Supabase, free)
 
-With this set up, the Drill and Stats pages ask people to sign in with Google instead of
-typing a name, and each person's scores are tied to their email. The Brief and Prices pages
-stay open to everyone. Google handles the passwords; the app only sees name and email.
+With this set up, everyone has to create an account (any email address) and sign in before
+using the website. Each person's drill scores are saved to their own account and kept for good,
+even when Streamlit restarts the app. Passwords are stored securely by Supabase; nobody can read them.
 
-1. Go to https://console.cloud.google.com and create a project (e.g. "EM Morning Desk").
-2. Open **Google Auth Platform** and click **Get started**. App name "EM Morning Desk",
-   your email as support email, Audience **External**, your email as contact, then **Create**.
-3. Open **Clients**, click **Create client**, choose **Web application**. Under
-   **Authorized redirect URIs** add your app's address followed by `/oauth2callback`, e.g.
-   `https://em-morning-desk-uftnu9qooug7cmfmqhladn.streamlit.app/oauth2callback`.
-   Click **Create** and keep the Client ID and Client secret window open.
-4. Open **Audience** and click **Publish app**, so anyone (not only test users) can sign in.
-5. In Streamlit's **Secrets**, add this at the very **bottom** (below your keys, because every
-   line after `[auth]` belongs to it):
+1. Go to https://supabase.com, click **Start your project**, and sign in with GitHub.
+2. Click **New project**. Name it `em-morning-desk`, click **Generate a password** (you won't
+   need it again), pick the region closest to you, and click **Create new project**.
+3. When it's ready, open **SQL Editor** (left menu), paste everything from
+   `supabase_setup.sql`, and click **Run**. It should say "Success. No rows returned".
+4. Open **Authentication → Sign In / Providers → Email**, turn **off** "Confirm email", and
+   click **Save**. (Otherwise people must click a link in an email first, and Supabase's free
+   email sender only sends a few per hour.)
+5. Click **Connect** at the top (or Project Settings → API Keys) and copy the **Project URL**
+   and the **publishable key** (starts with `sb_publishable_`; older projects call it the
+   "anon public" key).
+6. In Streamlit's **Secrets**, add (above any `[section]` line):
    ```toml
-   [auth]
-   redirect_uri = "https://em-morning-desk-uftnu9qooug7cmfmqhladn.streamlit.app/oauth2callback"
-   cookie_secret = "any-long-random-text-you-make-up"
-   client_id = "paste the Client ID"
-   client_secret = "paste the Client secret"
-   server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
+   SUPABASE_URL = "https://xxxx.supabase.co"
+   SUPABASE_KEY = "sb_publishable_..."
    ```
-   Remove the `[auth]` block again to go back to typing names.
+
+To see or delete accounts, open **Authentication → Users** in Supabase. Remove the two
+lines from Secrets to turn accounts off again (the site then asks for a name instead).
+People stay signed in until they close the tab or click **Sign out**.
 
 Good to know: the online app has its own database, separate from your Mac. Drill history
 there can reset when Streamlit restarts the app (after it sleeps from a few days of no use).
@@ -210,6 +211,7 @@ items/            your own item price files (start from _template.csv)
 modules/drill.py  builds, times and grades the drill; picks more of your weak spots
 app.py            the web dashboard (Streamlit)
 modules/routine.py builds one morning's brief (used by main.py, app.py and the schedule)
+modules/accounts.py email + password accounts and saved drill scores on the website (Supabase)
 modules/emailer.py sends the brief through Gmail
 morning_job.py    the hands-off brief the schedule runs
 schedule/         turn the weekday-morning schedule on and off

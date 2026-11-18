@@ -30,7 +30,7 @@ from dotenv import load_dotenv
 import config
 import db
 from data import bigmac, fx
-from modules import brief, drill, prices, routine, stats
+from modules import accounts, brief, drill, prices, routine, stats
 
 load_dotenv()  # on your Mac: keys from .env. Online, Streamlit's "Secrets" provide them instead.
 
@@ -244,34 +244,78 @@ def page_prices():
 
 
 # ---------------------------------------------------------------------------
-# Accounts: whose drill scores? (only matters on the shared website)
+# Accounts and whose drill scores
 # ---------------------------------------------------------------------------
 
-def sign_in_is_set_up():
-    """True if the [auth] section (Google sign-in) is in Streamlit's Secrets. See the README."""
-    try:
-        return "auth" in st.secrets
-    except Exception:  # no secrets file at all, e.g. on your Mac
-        return False
+def sign_in_page():
+    """
+    When accounts are set up (SUPABASE_URL + SUPABASE_KEY in Secrets), everyone has to sign in
+    or create an account before seeing anything. Returns True once they're signed in.
+    """
+    if not accounts.is_set_up() or st.session_state.get("account"):
+        return True
+
+    st.title("🌎 EM Morning Desk")
+    st.write("A morning brief on emerging-market currencies, plus a timed FX math drill. "
+             "Sign in, or create a free account with any email address.")
+    sign_in_tab, sign_up_tab = st.tabs(["Sign in", "Create an account"])
+
+    with sign_in_tab:
+        with st.form("sign-in"):
+            email = st.text_input("Email")
+            password = st.text_input("Password", type="password")
+            if st.form_submit_button("Sign in", type="primary"):
+                try:
+                    st.session_state.account = accounts.sign_in(email, password)
+                    st.rerun()
+                except accounts.AccountError as error:
+                    st.error(str(error))
+
+    with sign_up_tab:
+        with st.form("sign-up"):
+            email = st.text_input("Email", key="new-email")
+            password = st.text_input(f"Password (at least {accounts.MIN_PASSWORD_LENGTH} characters)",
+                                     type="password", key="new-password")
+            again = st.text_input("Password again", type="password", key="new-password-again")
+            if st.form_submit_button("Create account", type="primary"):
+                problem = accounts.check_new_account(email, password, again)
+                if problem:
+                    st.error(problem)
+                else:
+                    try:
+                        session = accounts.sign_up(email, password)
+                        if session:
+                            st.session_state.account = session
+                            st.rerun()
+                        st.success("Account created. Check your inbox for a confirmation email, "
+                                   "then come back and sign in.")
+                    except accounts.AccountError as error:
+                        st.error(str(error))
+
+    st.caption("Your password is stored securely by Supabase; nobody, including the site's owner, "
+               "can read it. [Privacy](?page=privacy)")
+    return False
+
+
+def account_sidebar():
+    """Shows who's signed in, with a Sign out button."""
+    account = st.session_state.get("account")
+    if account:
+        st.sidebar.caption(f"Signed in as {account['email']}")
+        if st.sidebar.button("Sign out"):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
 
 
 def player_name():
     """
-    Whose drill scores to show and save.
-      - Google sign-in set up (online): each person signs in, and their email is their account.
-      - Otherwise on the shared website (ADMIN_PASSWORD set): each person types a name.
+    Whose drill scores to show and save on the shared website without accounts.
+      - On the shared website (ADMIN_PASSWORD set): each person types a name.
       - On your Mac: "" (just you).
-    Returns None if the person still needs to sign in or type a name.
+    Returns None if a name is needed but hasn't been typed yet.
+    (With accounts set up this isn't used: scores belong to the signed-in account.)
     """
-    if sign_in_is_set_up():
-        if not st.user.get("is_logged_in", False):
-            st.info("Sign in so your drill scores are saved to your own account. "
-                    "We only see your name and email address.")
-            if st.button("Sign in with Google", type="primary"):
-                st.login()
-            return None
-        return (st.user.get("email") or "").lower()
-
     if not os.getenv("ADMIN_PASSWORD"):
         return ""
     # Remembered in session_state (not as the widget's key) so it survives switching pages.
@@ -285,12 +329,34 @@ def player_name():
     return name
 
 
-def account_sidebar():
-    """Shows who's signed in, with a Sign out button (only when Google sign-in is set up)."""
-    if sign_in_is_set_up() and st.user.get("is_logged_in", False):
-        st.sidebar.caption(f"Signed in as {st.user.email}")
-        if st.sidebar.button("Sign out"):
-            st.logout()
+def load_history(conn, player):
+    """This person's drill history: from their account if signed in, otherwise from desk.db."""
+    account = st.session_state.get("account")
+    if account:
+        try:
+            return accounts.load_results(account)
+        except accounts.AccountError as error:
+            st.error(f"Couldn't load your past scores: {error}")
+            return []
+    return db.load_drill_results(conn, player=player)
+
+
+def save_answer(conn, result, player):
+    account = st.session_state.get("account")
+    if account:
+        try:
+            accounts.save_result(account, TODAY, result)
+        except accounts.AccountError as error:
+            st.error(f"Couldn't save that answer to your account: {error}")
+    else:
+        db.save_drill_result(conn, TODAY, result, player=player)
+
+
+def whose_scores():
+    """The player name for desk.db (None = still waiting for a name). Accounts don't need one."""
+    if st.session_state.get("account"):
+        return st.session_state.account["email"]
+    return player_name()
 
 
 # ---------------------------------------------------------------------------
@@ -303,7 +369,7 @@ def start_drill(conn, player):
         st.error("No FX data available, so there's nothing to build the drill from today.")
         return
     big_mac, _, _ = bigmac.get_item_prices({"name": "Big Mac", "source": "economist"})
-    history = db.load_drill_results(conn, player=player)
+    history = load_history(conn, player)
     st.session_state.questions = drill.make_questions(fx_rows, history, prices=big_mac)
     st.session_state.index = 0
     st.session_state.results = []
@@ -315,7 +381,7 @@ def page_drill():
     st.header("🧮 Math Drill")
     conn = connect()
     state = st.session_state
-    player = player_name()
+    player = whose_scores()
     if player is None:
         return
 
@@ -346,7 +412,7 @@ def page_drill():
             given = drill.parse_answer(typed)
             correct = drill.is_correct(q["type"], given, q["answer"])
             result = dict(q, your_answer=typed.strip(), correct=correct, seconds=seconds)
-            db.save_drill_result(conn, TODAY, result, player=player)
+            save_answer(conn, result, player)
             state.results.append(result)
             if correct:
                 state.feedback = (True, f"✅ Correct ({drill.show_answer(q)}) in {seconds:.1f}s")
@@ -363,7 +429,7 @@ def page_drill():
     # Finished: the summary
     results = state.results
     if results:
-        s = drill.summary(results, db.load_drill_results(conn, player=player))
+        s = drill.summary(results, load_history(conn, player))
         cols = st.columns(4)
         cols[0].metric("Score", f"{s['score']}/{s['count']}")
         cols[1].metric("Average time", f"{s['avg_seconds']:.1f}s")
@@ -392,10 +458,10 @@ def page_drill():
 
 def page_stats():
     st.header("📈 Drill Stats")
-    player = player_name()
+    player = whose_scores()
     if player is None:
         return
-    history = db.load_drill_results(connect(), player=player)
+    history = load_history(connect(), player)
     if not history:
         st.write("No drill results yet. Do a drill first and your progress will show up here.")
         return
@@ -441,7 +507,7 @@ def page_stats():
 
 
 # ---------------------------------------------------------------------------
-# Privacy page (Google sign-in needs a privacy policy link): open it with ?page=privacy
+# Privacy page: open it with ?page=privacy
 # ---------------------------------------------------------------------------
 
 PRIVACY = """
@@ -449,17 +515,16 @@ PRIVACY = """
 
 EM Morning Desk is a free student project for practising emerging-market FX.
 
-**What we collect.** If you sign in with Google, the app receives your name and email address.
-Your email is used only to keep your drill answers and scores separate from other people's.
-If you don't sign in, nothing about you is stored.
+**What we collect.** When you create an account, we keep your email address and your password.
+The password is stored securely (hashed) by our accounts provider, Supabase, so nobody can read it.
+Your email is used only to sign you in and keep your drill scores separate from other people's.
 
 **What we store.** Your drill answers, whether they were right, and how long they took.
 The brief, rates and prices are the same for everyone and aren't linked to you.
 
 **What we don't do.** We don't sell or share your information, show ads, or email you.
 
-**Deleting your data.** The app's database is reset from time to time. To have your scores
-removed sooner, email the address shown on Google's sign-in screen.
+**Deleting your data.** To have your account and scores deleted, ask the site's owner.
 """
 
 
@@ -482,7 +547,7 @@ if st.query_params.get("page") == "privacy":
     page_privacy()
     st.stop()
 
-if not check_password():
+if not check_password() or not sign_in_page():
     st.stop()
 
 st.sidebar.title("🌎 EM Morning Desk")
