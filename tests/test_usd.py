@@ -104,3 +104,12 @@ def test_trade_scenarios(tmp_path):
     assert paths["Steady"][2028] == 81 and paths["Trend"][2028] == pytest.approx(76)
     assert set(usd_trade.scenarios([(2022, 85.0)], [2027])) == {"Steady"}
     assert usd_trade.load(tmp_path / "missing.csv") == []
+
+
+def test_desk_countries_from_real_data():
+    rows = usd_trade.load()
+    desk = {d["country"]: d for d in usd_trade.desk_countries(rows, ["Brazil", "Mexico", "China", "Colombia"])}
+    assert desk["Brazil"]["exports"][0] >= 2023 and 0 < desk["Brazil"]["exports"][1] <= 100
+    assert desk["Mexico"]["exports"] is None and "customs" in desk["Mexico"]["note"]
+    assert "SAFE" in desk["China"]["note"]
+    assert desk["Colombia"]["exports"] and desk["Colombia"]["imports"] is None

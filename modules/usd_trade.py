@@ -1,11 +1,12 @@
 """
 modules/usd_trade.py: how much of each country's trade is invoiced (priced) in US dollars.
 
-The data come from the invoicing-currency dataset of Boz, Casas, Georgiadis, Gopinath,
-Le Mezo, Mehl and Nguyen (2022), "Patterns of invoicing currency in global trade: New evidence",
-Journal of International Economics 136 (replication data on Mendeley Data, doi 10.17632/6z6w78968m.1,
-CC BY 4.0, file all_countries_update.dta). 110 countries, 1989-2019. Saved as
-data/usd_invoicing.csv with one row per country per year:
+The data come from the Global Trade Invoicing Currency Patterns Database (version of
+29 August 2025) by Boz, Brüggen, Casas, Georgiadis, Gopinath and Mehl (2025), "Patterns of
+Invoicing Currency in Global Trade in a Fragmenting World Economy", IMF Working Paper 25/178.
+Downloaded from globalcurrenciesdatabase.com (licence: CC BY-NC-SA 4.0, so this CSV is shared
+under the same licence and must not be used commercially). It extends the 2022 dataset to 2023
+(a few countries to 2024): 130 countries. Saved as data/usd_invoicing.csv, one row per country per year:
 
     country, iso3, iso_num, year, usd_export_share, usd_import_share
 
@@ -21,6 +22,18 @@ import os
 
 PATH = os.path.join("data", "usd_invoicing.csv")
 TREND_YEARS = 10
+
+# ISO codes of the desk's countries (config.CURRENCIES), to find them in the dataset.
+ISO3 = {"Brazil": "BRA", "Mexico": "MEX", "India": "IND", "South Africa": "ZAF", "Turkey": "TUR",
+        "China": "CHN", "South Korea": "KOR", "Indonesia": "IDN", "Chile": "CHL", "Colombia": "COL"}
+
+# Why some of the desk's countries have no numbers.
+NO_DATA = {
+    "MEX": "Not measured: Mexican customs forms don't have to record the invoicing currency.",
+    "CHN": "Not measured: China doesn't publish invoicing currencies. Its official payment data "
+           "(SAFE) show the dollar's share of cross-border settlement falling from about 90% to "
+           "about 50% by 2023 as the renminbi took over (payments, not invoicing).",
+}
 
 
 def load(path=PATH):
@@ -78,4 +91,21 @@ def scenarios(points, target_years):
     if len(recent) >= 3:
         slope, intercept = linear_trend(recent)
         out["Trend"] = {y: min(100.0, max(0.0, slope * y + intercept)) for y in target_years}
+    return out
+
+
+def desk_countries(rows, countries):
+    """
+    One row per desk country: latest USD share of exports and imports (with years), or a note
+    saying why there's no data. `countries` = names from config.CURRENCIES.
+    """
+    out = []
+    for name in countries:
+        iso3 = ISO3.get(name)
+        row = {"country": name}
+        for column, label in (("usd_export_share", "exports"), ("usd_import_share", "imports")):
+            points = history(rows, iso3, column)
+            row[label] = points[-1] if points else None
+        row["note"] = NO_DATA.get(iso3, "" if row["exports"] or row["imports"] else "No data.")
+        out.append(row)
     return out

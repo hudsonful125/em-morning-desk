@@ -236,7 +236,7 @@ modules/routine.py builds one morning's brief (used by main.py, app.py and the s
 modules/usd_outlook.py USD vs EM history (1M/1Y/5Y) and the long-term scenarios
 data/fx_history.py monthly rate history from Twelve Data (cached a week in cache/)
 data/policy_rates.csv central bank rates used by the Rate gap scenario (edit when banks move)
-modules/usd_trade.py the dollar's share of each country's trade (data/usd_invoicing.csv)
+modules/usd_trade.py the dollar's share of each country's trade (data/usd_invoicing.csv: Boz et al. 2025, CC BY-NC-SA 4.0)
 modules/carry.py  carry table, commodity links, stale-rate warnings
 data/commodities.py today's oil, copper and soybean fund moves
 modules/accounts.py email + password accounts and saved drill scores on the website (Supabase)

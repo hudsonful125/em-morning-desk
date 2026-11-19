@@ -511,10 +511,22 @@ def page_trade():
     ).transform_filter("isValid(datum.Share)")
     st.altair_chart((background + shares).project("equalEarth").properties(height=420))
     st.caption(f"Grey = no data. Each country shows its latest available year "
-               f"({int(data['Year'].min())} to {int(data['Year'].max())}). Source: Boz, Casas, Georgiadis, "
-               "Gopinath, Le Mezo, Mehl and Nguyen (2022), \"Patterns of invoicing currency in global trade: "
-               "New evidence\", Journal of International Economics, data on Mendeley Data (CC BY 4.0). "
-               "The data end in 2019, and Mexico and China don't report invoicing currencies.")
+               f"({int(data['Year'].min())} to {int(data['Year'].max())}). Source: Global Trade Invoicing "
+               "Currency Patterns Database (Aug 2025), Boz, Brüggen, Casas, Georgiadis, Gopinath and Mehl, "
+               "\"Patterns of Invoicing Currency in Global Trade in a Fragmenting World Economy\", "
+               "IMF Working Paper 25/178, globalcurrenciesdatabase.com (CC BY-NC-SA 4.0).")
+
+    st.subheader("The desk's 10 countries")
+    def share(point):
+        return f"{point[1]:.0f}% ({point[0]})" if point else "–"
+    desk = usd_trade.desk_countries(rows, [c["country"] for c in config.CURRENCIES])
+    st.dataframe(pd.DataFrame([{"Country": d["country"], "Exports in USD": share(d["exports"]),
+                                "Imports in USD": share(d["imports"])} for d in desk]),
+                 hide_index=True, width="stretch")
+    st.caption("Latest year in brackets. – = that side of trade isn't reported.")
+    for d in desk:
+        if d["note"]:
+            st.caption(f"**{d['country']}:** {d['note']}")
 
     st.subheader("Where is it heading? (scenarios, not forecasts)")
     options = list(data.sort_values("Country")["Country"])
