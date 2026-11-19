@@ -45,6 +45,9 @@ class FakeSupabase:
         token = headers.get("Authorization", "")[7:]
         if token not in self.valid_tokens:
             return FakeResponse(401, {"message": "JWT expired"})
+        if path == "/auth/v1/logout":
+            self.valid_tokens.discard(token)
+            return FakeResponse(204, None)
         email = token.split("-")[1]
         if method == "POST":
             self.rows.append(dict(json, owner=email))
@@ -105,3 +108,13 @@ def test_expired_pass_is_renewed(supabase):
     supabase.valid_tokens.clear()  # pretend an hour went by
     accounts.save_result(session, "2026-11-18", RESULT)
     assert len(supabase.rows) == 1 and session["access_token"] in supabase.valid_tokens
+
+
+def test_restore_and_sign_out(supabase):
+    accounts.sign_up("me@school.edu", "longenough")
+    session = accounts.restore("r-me@school.edu")      # the saved "stay signed in" token
+    assert session["email"] == "me@school.edu" and session["access_token"] in supabase.valid_tokens
+    accounts.sign_out(session)
+    method, url, headers = supabase.calls[-1]
+    assert url.endswith("/auth/v1/logout") and headers["Authorization"] == f"Bearer {session['access_token']}"
+    assert session["access_token"] not in supabase.valid_tokens

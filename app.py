@@ -26,6 +26,7 @@ from datetime import date
 import altair as alt
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
 import config
@@ -542,13 +543,72 @@ def page_trade():
 # Accounts and whose drill scores
 # ---------------------------------------------------------------------------
 
+STAY_COOKIE = "em_desk_stay_signed_in"
+STAY_DAYS = 30
+
+
+def set_stay_cookie(value, days=STAY_DAYS):
+    """
+    Save (or, with days=0, delete) the "stay signed in" cookie in this browser.
+    Streamlit can read cookies but not write them, so a tiny invisible script does the writing.
+    The cookie holds a Supabase refresh token: a pass that can be swapped for a new sign-in,
+    not the password.
+    """
+    script = f"""<script>
+    const doc = window.parent.document;
+    const secure = window.parent.location.protocol === "https:" ? "; Secure" : "";
+    doc.cookie = {json.dumps(STAY_COOKIE)} + "=" + encodeURIComponent({json.dumps(value)})
+        + "; max-age={int(days * 86400)}; path=/; SameSite=Lax" + secure;
+    </script>"""
+    if hasattr(st, "iframe"):  # newer Streamlit (the website)
+        st.iframe(script, height=1)
+    else:                      # older Streamlit (Python 3.9 on the Mac)
+        components.html(script, height=0)
+
+
+def stay_cookie():
+    """The saved refresh token from this browser, or None (needs Streamlit 1.37 or newer)."""
+    try:
+        value = st.context.cookies.get(STAY_COOKIE)
+    except AttributeError:
+        return None
+    return value if isinstance(value, str) and value else None
+
+
+def restore_sign_in():
+    """If this browser ticked "Stay signed in" before, sign it back in without the form."""
+    token = stay_cookie()
+    if not token or st.session_state.get("signed_out") or st.session_state.get("restore_tried"):
+        return False
+    st.session_state.restore_tried = True  # only try once per visit
+    try:
+        st.session_state.account = accounts.restore(token)
+        st.session_state.stay_signed_in = True
+        return True
+    except accounts.AccountError:
+        set_stay_cookie("", days=0)  # expired or signed out elsewhere: forget it
+        return False
+
+
+def save_stay_cookie():
+    """
+    Keep the cookie up to date. Supabase gives out a new refresh token whenever it renews a
+    sign-in, so we save the latest one at the end of every page load.
+    """
+    account = st.session_state.get("account")
+    if account and st.session_state.get("stay_signed_in"):
+        set_stay_cookie(account["refresh_token"])
+
+
 def sign_in_page():
     """
     When accounts are set up (SUPABASE_URL + SUPABASE_KEY in Secrets), everyone has to sign in
     or create an account before seeing anything. Returns True once they're signed in.
     """
-    if not accounts.is_set_up() or st.session_state.get("account"):
+    if not accounts.is_set_up() or st.session_state.get("account") or restore_sign_in():
         return True
+    if st.session_state.get("signed_out"):
+        set_stay_cookie("", days=0)  # they signed out: delete the saved sign-in
 
     st.title("🌎 EM Morning Desk")
     st.write("A morning brief on emerging-market currencies, plus a timed FX math drill. "
@@ -559,9 +619,12 @@ def sign_in_page():
         with st.form("sign-in"):
             email = st.text_input("Email")
             password = st.text_input("Password", type="password")
+            stay = st.checkbox(f"Stay signed in on this device for {STAY_DAYS} days",
+                               help="Don't tick this on a shared or public computer.")
             if st.form_submit_button("Sign in", type="primary"):
                 try:
                     st.session_state.account = accounts.sign_in(email, password)
+                    st.session_state.stay_signed_in = stay
                     st.rerun()
                 except accounts.AccountError as error:
                     st.error(str(error))
@@ -572,6 +635,8 @@ def sign_in_page():
             password = st.text_input(f"Password (at least {accounts.MIN_PASSWORD_LENGTH} characters)",
                                      type="password", key="new-password")
             again = st.text_input("Password again", type="password", key="new-password-again")
+            stay_new = st.checkbox(f"Stay signed in on this device for {STAY_DAYS} days", key="new-stay",
+                                   help="Don't tick this on a shared or public computer.")
             if st.form_submit_button("Create account", type="primary"):
                 problem = accounts.check_new_account(email, password, again)
                 if problem:
@@ -581,6 +646,7 @@ def sign_in_page():
                         session = accounts.sign_up(email, password)
                         if session:
                             st.session_state.account = session
+                            st.session_state.stay_signed_in = stay_new
                             st.rerun()
                         st.success("Account created. Check your inbox for a confirmation email, "
                                    "then come back and sign in.")
@@ -598,8 +664,10 @@ def account_sidebar():
     if account:
         st.sidebar.caption(f"Signed in as {account['email']}")
         if st.sidebar.button("Sign out"):
+            accounts.sign_out(account)
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
+            st.session_state.signed_out = True  # so the saved sign-in isn't used again
             st.rerun()
 
 
@@ -813,6 +881,8 @@ EM Morning Desk is a free student project for practising emerging-market FX.
 **What we collect.** When you create an account, we keep your email address and your password.
 The password is stored securely (hashed) by our accounts provider, Supabase, so nobody can read it.
 Your email is used only to sign you in and keep your drill scores separate from other people's.
+If you tick "Stay signed in", a cookie on your device keeps you signed in for up to 30 days
+(it holds a sign-in pass, not your password). Signing out deletes it.
 
 **What we store.** Your drill answers, whether they were right, and how long they took.
 The brief, rates and prices are the same for everyone and aren't linked to you.
@@ -854,3 +924,4 @@ st.sidebar.caption("Work through the pages top to bottom: Brief → Prices → D
 account_sidebar()
 st.sidebar.markdown("[Privacy](?page=privacy)")
 PAGES[choice]()
+save_stay_cookie()

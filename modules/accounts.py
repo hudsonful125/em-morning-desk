@@ -124,6 +124,23 @@ def sign_in(email, password):
                           json={"email": email.strip().lower(), "password": password}))
 
 
+def restore(refresh_token):
+    """
+    Sign someone back in from the refresh token saved when they ticked "Stay signed in".
+    Returns a new session (with a new refresh token: the old one stops working), or raises AccountError.
+    """
+    return _session(_call("POST", "/auth/v1/token", params={"grant_type": "refresh_token"},
+                          json={"refresh_token": refresh_token}))
+
+
+def sign_out(session):
+    """End this sign-in on Supabase, so a saved "stay signed in" token can't be used again."""
+    try:
+        _call("POST", "/auth/v1/logout", params={"scope": "local"}, token=session["access_token"])
+    except AccountError:
+        pass  # signing out locally still works if Supabase can't be reached
+
+
 def _refresh(session):
     """A session's pass expires after an hour; swap the refresh token for a new one (in place)."""
     session.update(_session(_call("POST", "/auth/v1/token", params={"grant_type": "refresh_token"},
