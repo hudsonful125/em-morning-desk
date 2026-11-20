@@ -112,20 +112,29 @@ def commodity_links(history, currency_pairs, commodity_symbols, months=CORRELATI
 
 def stale_rate_warnings(checked, meetings, country_to_pair, today=None):
     """
-    Warnings for each central bank that has met since the rates file was last checked
+    Warnings for each central bank that has met since its rate was last checked
     (including a meeting on the day of the check, whose result may not have been in yet),
     plus one if the file hasn't been checked for STALE_AFTER_DAYS.
-    `checked` = 'YYYY-MM-DD'; `meetings` = rows from data/central_bank_calendar.csv.
+    `checked` = 'YYYY-MM-DD' for the whole file, or {country: 'YYYY-MM-DD'} for each bank
+    (data/rate_updater.py moves each bank's date forward as new BIS data comes in).
+    `meetings` = rows from data/central_bank_calendar.csv.
     """
     today = today or date.today()
-    checked_day = date.fromisoformat(checked)
+    if isinstance(checked, dict):
+        by_country = {c: date.fromisoformat(d) for c, d in checked.items()}
+        oldest = min(by_country.values())
+    else:
+        oldest = date.fromisoformat(checked)
+        by_country = {}
     warnings = []
     for m in meetings:
         day = date.fromisoformat(m["date"])
+        checked_day = by_country.get(m["country"], oldest)
         if checked_day <= day < today and m["country"] in country_to_pair:
-            warnings.append(f"{m['bank']} ({m['country']}) met on {day:%a %d %b}. "
-                            f"Check its rate and update data/policy_rates.csv.")
-    if today - checked_day > timedelta(days=STALE_AFTER_DAYS):
+            warnings.append(f"{m['bank']} ({m['country']}) met on {day:%a %d %b}. The automatic update "
+                            f"usually picks up the new rate within a week; until then you can type it "
+                            f"into data/policy_rates.csv.")
+    if today - oldest > timedelta(days=STALE_AFTER_DAYS):
         warnings.append(f"The interest rates in data/policy_rates.csv were last checked on "
-                        f"{checked_day:%d %b %Y}. Please check them again.")
+                        f"{oldest:%d %b %Y}. Please check them again.")
     return warnings

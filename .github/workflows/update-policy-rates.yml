@@ -1,0 +1,41 @@
+# Keeps data/policy_rates.csv up to date on GitHub, so the live website gets new rates.
+# Every weekday it runs data/rate_updater.py (free BIS data, no API key) and, if a rate or
+# "checked" date changed, commits the file. Streamlit Cloud redeploys within a minute.
+# Run it by hand: GitHub > Actions > "Update policy rates" > Run workflow.
+name: Update policy rates
+
+on:
+  schedule:
+    - cron: "15 13 * * 1-5"   # 13:15 UTC weekdays (8:15am New York in winter)
+  workflow_dispatch:
+  pull_request:
+    paths: ["data/rate_updater.py", ".github/workflows/update-policy-rates.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: Get the latest rates from BIS
+        run: python -m data.rate_updater
+      - name: Show what changed
+        run: git diff --stat; git diff data/policy_rates.csv
+      - name: Save the new rates
+        if: github.event_name != 'pull_request'
+        run: |
+          if git diff --quiet data/policy_rates.csv; then
+            echo "No changes."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+            git add data/policy_rates.csv
+            git commit -m "Update policy rates from BIS"
+            git push
+          fi
