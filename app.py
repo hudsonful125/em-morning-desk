@@ -27,7 +27,10 @@ from urllib.parse import unquote
 import altair as alt
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
+try:
+    import streamlit.components.v1 as components  # older Streamlit (the Mac)
+except ImportError:
+    components = None
 from dotenv import load_dotenv
 
 import config
@@ -595,7 +598,7 @@ def run_script(code):
     html = f"<script>{code}</script>"
     if hasattr(st, "iframe"):  # newer Streamlit (the website)
         st.iframe(html, height=1)
-    else:                      # older Streamlit (Python 3.9 on the Mac)
+    elif components:           # older Streamlit (Python 3.9 on the Mac)
         components.html(html, height=0)
 
 
@@ -606,7 +609,7 @@ def run_script_in_page(code):
     """
     run_script(f"""
     const s = window.parent.document.createElement("script");
-    s.textContent = {json.dumps(code)};
+    s.textContent = {json.dumps("(() => {" + code + "})();")};
     window.parent.document.head.appendChild(s);""")
 
 
@@ -621,7 +624,11 @@ def send_cookie_back():
     const name = {json.dumps(STAY_COOKIE)} + "=";
     const found = document.cookie.split("; ").find(c => c.startsWith(name));
     const params = new URLSearchParams(page.search);
-    if (found && !params.has("restore")) {{
+    // At most one try every 60 seconds per tab, so this can never get stuck reloading.
+    let last = 0;
+    try {{ last = Number(sessionStorage.getItem("em_desk_restore_at") || 0); }} catch (e) {{}}
+    if (found && !params.has("restore") && Date.now() - last > 60000) {{
+        try {{ sessionStorage.setItem("em_desk_restore_at", String(Date.now())); }} catch (e) {{ return; }}
         params.set("restore", decodeURIComponent(found.slice(name.length)));
         page.replace(page.pathname + "?" + params.toString());
     }}""")
