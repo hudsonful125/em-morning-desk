@@ -22,6 +22,7 @@ import json
 import os
 import time
 from datetime import date
+from urllib.parse import unquote
 
 import altair as alt
 import pandas as pd
@@ -497,8 +498,15 @@ def page_trade():
     kind = st.radio("Trade", ["Exports", "Imports"], horizontal=True)
     column = "usd_export_share" if kind == "Exports" else "usd_import_share"
     latest = usd_trade.latest_by_country(rows, column)
-    data = pd.DataFrame([{"id": r["iso_num"], "Country": r["country"], "Share": r[column], "Year": r["year"]}
-                         for r in latest])
+    newest = max(r["year"] for r in latest)
+    year = st.slider("Year (drag to see the past, the latest data and projections to 2035)",
+                     2000, 2035, value=min(newest, 2023))
+    shown = usd_trade.map_for_year(rows, column, year)
+    data = pd.DataFrame([{"id": r["iso_num"], "Country": r["country"], "Share": r["share"],
+                          "Data year": r["data_year"], "Kind": r["kind"]} for r in shown])
+    if data.empty:
+        st.info(f"No countries have {kind.lower()} data for {year}.")
+        return
 
     world = alt.InlineData(values=world_outlines(),
                            format=alt.DataFormat(type="topojson", feature="countries"))
@@ -506,12 +514,20 @@ def page_trade():
     shares = alt.Chart(world).mark_geoshape(stroke="white", strokeWidth=0.5).encode(
         color=alt.Color("Share:Q", title=f"% of {kind.lower()} in USD",
                         scale=alt.Scale(domain=[0, 100], scheme="blues")),
-        tooltip=["Country:N", alt.Tooltip("Share:Q", format=".0f", title="% in USD"), "Year:Q"],
-    ).transform_lookup(lookup="id", from_=alt.LookupData(data, "id", ["Country", "Share", "Year"])
+        opacity=alt.Opacity("Kind:N", scale=alt.Scale(domain=["Actual", "Projected"], range=[1, 0.55]),
+                            legend=alt.Legend(title=None, orient="bottom")),
+        tooltip=["Country:N", alt.Tooltip("Share:Q", format=".0f", title="% in USD"), "Kind:N",
+                 alt.Tooltip("Data year:Q", title="Latest data used")],
+    ).transform_lookup(lookup="id", from_=alt.LookupData(data, "id", ["Country", "Share", "Data year", "Kind"])
     ).transform_filter("isValid(datum.Share)")
     st.altair_chart((background + shares).project("equalEarth").properties(height=420))
-    st.caption(f"Grey = no data. Each country shows its latest available year "
-               f"({int(data['Year'].min())} to {int(data['Year'].max())}). Source: Global Trade Invoicing "
+    projected = int((data["Kind"] == "Projected").sum())
+    st.caption(f"**{year}:** {len(data)} countries, {projected} of them projected. Grey = no data. "
+               f"Up to each country's latest data the map shows its real share (or the closest earlier "
+               f"year, up to {usd_trade.MAX_GAP} years back). After that, faded colours show the Trend "
+               f"scenario (the last {usd_trade.TREND_YEARS} years' straight-line trend, kept between 0% and "
+               f"100%), only for countries with data from {usd_trade.PROJECT_FROM} on. Projections are "
+               "what-ifs, not forecasts. Source: Global Trade Invoicing "
                "Currency Patterns Database (Aug 2025), Boz, Brüggen, Casas, Georgiadis, Gopinath and Mehl, "
                "\"Patterns of Invoicing Currency in Global Trade in a Fragmenting World Economy\", "
                "IMF Working Paper 25/178, globalcurrenciesdatabase.com (CC BY-NC-SA 4.0).")
@@ -529,7 +545,7 @@ def page_trade():
             st.caption(f"**{d['country']}:** {d['note']}")
 
     st.subheader("Where is it heading? (scenarios, not forecasts)")
-    options = list(data.sort_values("Country")["Country"])
+    options = sorted(r["country"] for r in latest)
     country = st.selectbox("Country", options, index=options.index("Brazil") if "Brazil" in options else 0)
     iso3 = next(r["iso3"] for r in latest if r["country"] == country)
     points = usd_trade.history(rows, iso3, column)
@@ -559,43 +575,82 @@ STAY_COOKIE = "em_desk_stay_signed_in"
 STAY_DAYS = 30
 
 
-def set_stay_cookie(value, days=STAY_DAYS):
+def set_stay_cookie(value, days=None):
     """
-    Save (or, with days=0, delete) the "stay signed in" cookie in this browser.
+    Save the sign-in cookie in this browser. days=None: until the browser is closed (so a
+    refresh doesn't sign you out); days=30: "Stay signed in"; days=0: delete it.
     Streamlit can read cookies but not write them, so a tiny invisible script does the writing.
     The cookie holds a Supabase refresh token: a pass that can be swapped for a new sign-in,
     not the password.
     """
-    script = f"""<script>
-    const doc = window.parent.document;
+    lifetime = "" if days is None else f"; max-age={int(days * 86400)}"
+    run_script(f"""
     const secure = window.parent.location.protocol === "https:" ? "; Secure" : "";
-    doc.cookie = {json.dumps(STAY_COOKIE)} + "=" + encodeURIComponent({json.dumps(value)})
-        + "; max-age={int(days * 86400)}; path=/; SameSite=Lax" + secure;
-    </script>"""
+    window.parent.document.cookie = {json.dumps(STAY_COOKIE)} + "=" + encodeURIComponent({json.dumps(value)})
+        + "{lifetime}; path=/; SameSite=Lax" + secure;""")
+
+
+def run_script(code):
+    """Run a little JavaScript in the visitor's browser (in an invisible frame)."""
+    html = f"<script>{code}</script>"
     if hasattr(st, "iframe"):  # newer Streamlit (the website)
-        st.iframe(script, height=1)
+        st.iframe(html, height=1)
     else:                      # older Streamlit (Python 3.9 on the Mac)
-        components.html(script, height=0)
+        components.html(html, height=0)
+
+
+def run_script_in_page(code):
+    """
+    Like run_script, but the code runs in the app's own page rather than the invisible frame.
+    Needed for reloading the page: browsers don't let a sandboxed frame do that.
+    """
+    run_script(f"""
+    const s = window.parent.document.createElement("script");
+    s.textContent = {json.dumps(code)};
+    window.parent.document.head.appendChild(s);""")
+
+
+def send_cookie_back():
+    """
+    Backup plan for when the server can't see the cookie (some hosts don't pass cookies on):
+    the browser reads it itself and reloads the page with it in the address (?restore=...),
+    where the app can read it. The address is cleaned up straight after.
+    """
+    run_script_in_page(f"""
+    const page = window.location;
+    const name = {json.dumps(STAY_COOKIE)} + "=";
+    const found = document.cookie.split("; ").find(c => c.startsWith(name));
+    const params = new URLSearchParams(page.search);
+    if (found && !params.has("restore")) {{
+        params.set("restore", decodeURIComponent(found.slice(name.length)));
+        page.replace(page.pathname + "?" + params.toString());
+    }}""")
 
 
 def stay_cookie():
-    """The saved refresh token from this browser, or None (needs Streamlit 1.37 or newer)."""
-    try:
-        value = st.context.cookies.get(STAY_COOKIE)
-    except AttributeError:
-        return None
-    return value if isinstance(value, str) and value else None
+    """The saved sign-in from this browser ("30:<token>" or "0:<token>"), or None."""
+    value = st.query_params.get("restore")
+    if value:
+        del st.query_params["restore"]  # don't leave it in the address bar
+    else:
+        try:
+            value = st.context.cookies.get(STAY_COOKIE)  # Streamlit 1.37 or newer
+        except AttributeError:
+            return None
+    value = unquote(value) if isinstance(value, str) else ""  # cookies arrive %-encoded
+    return value if ":" in value else None
 
 
 def restore_sign_in():
-    """If this browser ticked "Stay signed in" before, sign it back in without the form."""
-    token = stay_cookie()
-    if not token or st.session_state.get("signed_out") or st.session_state.get("restore_tried"):
+    """If this browser was signed in before (and didn't sign out), sign it back in without the form."""
+    saved = stay_cookie()
+    if not saved or st.session_state.get("signed_out") or st.session_state.get("restore_tried"):
         return False
     st.session_state.restore_tried = True  # only try once per visit
+    days, token = saved.split(":", 1)
     try:
         st.session_state.account = accounts.restore(token)
-        st.session_state.stay_signed_in = True
+        st.session_state.stay_signed_in = days == str(STAY_DAYS)
         return True
     except accounts.AccountError:
         set_stay_cookie("", days=0)  # expired or signed out elsewhere: forget it
@@ -608,8 +663,11 @@ def save_stay_cookie():
     sign-in, so we save the latest one at the end of every page load.
     """
     account = st.session_state.get("account")
-    if account and st.session_state.get("stay_signed_in"):
-        set_stay_cookie(account["refresh_token"])
+    if account and accounts.is_set_up():
+        if st.session_state.get("stay_signed_in"):
+            set_stay_cookie(f"{STAY_DAYS}:{account['refresh_token']}", days=STAY_DAYS)
+        else:
+            set_stay_cookie(f"0:{account['refresh_token']}")  # until the browser closes
 
 
 def sign_in_page():
@@ -621,6 +679,8 @@ def sign_in_page():
         return True
     if st.session_state.get("signed_out"):
         set_stay_cookie("", days=0)  # they signed out: delete the saved sign-in
+    elif not st.session_state.get("restore_tried"):
+        send_cookie_back()  # only if we haven't already tried a saved sign-in, so it can't loop
 
     st.title("🌎 EM Morning Desk")
     st.write("A morning brief on emerging-market currencies, plus a timed FX math drill. "
@@ -632,7 +692,7 @@ def sign_in_page():
             email = st.text_input("Email")
             password = st.text_input("Password", type="password")
             stay = st.checkbox(f"Stay signed in on this device for {STAY_DAYS} days",
-                               help="Don't tick this on a shared or public computer.")
+                               value=True, help="Untick this on a shared or public computer.")
             if st.form_submit_button("Sign in", type="primary"):
                 try:
                     st.session_state.account = accounts.sign_in(email, password)
@@ -648,7 +708,7 @@ def sign_in_page():
                                      type="password", key="new-password")
             again = st.text_input("Password again", type="password", key="new-password-again")
             stay_new = st.checkbox(f"Stay signed in on this device for {STAY_DAYS} days", key="new-stay",
-                                   help="Don't tick this on a shared or public computer.")
+                                   value=True, help="Untick this on a shared or public computer.")
             if st.form_submit_button("Create account", type="primary"):
                 problem = accounts.check_new_account(email, password, again)
                 if problem:

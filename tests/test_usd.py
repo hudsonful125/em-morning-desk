@@ -113,3 +113,17 @@ def test_desk_countries_from_real_data():
     assert desk["Mexico"]["exports"] is None and "customs" in desk["Mexico"]["note"]
     assert "SAFE" in desk["China"]["note"]
     assert desk["Colombia"]["exports"] and desk["Colombia"]["imports"] is None
+
+
+def test_map_for_year():
+    rows = [{"iso3": "AAA", "iso_num": 1, "country": "A", "year": y, "usd_export_share": 50.0 + (y - 2015)}
+            for y in range(2015, 2024)]
+    rows += [{"iso3": "OLD", "iso_num": 2, "country": "Old", "year": 2005, "usd_export_share": 80.0}]
+    def year(y):
+        return {r["country"]: r for r in usd_trade.map_for_year(rows, "usd_export_share", y)}
+    assert year(2020)["A"]["share"] == 55.0 and year(2020)["A"]["kind"] == "Actual"
+    assert year(2007)["Old"]["data_year"] == 2005           # 2 years old: still shown
+    assert "Old" not in year(2009)                           # 4 years old: too stale
+    assert year(2030)["A"]["kind"] == "Projected" and year(2030)["A"]["share"] == pytest.approx(65.0)
+    assert "Old" not in year(2030)                           # data too old to project
+    assert year(2070)["A"]["share"] == 100.0                 # projections stay within 0-100%

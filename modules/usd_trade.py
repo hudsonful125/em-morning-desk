@@ -109,3 +109,36 @@ def desk_countries(rows, countries):
         row["note"] = NO_DATA.get(iso3, "" if row["exports"] or row["imports"] else "No data.")
         out.append(row)
     return out
+
+
+MAX_GAP = 3            # use a reading up to 3 years old when a country skipped the chosen year
+PROJECT_FROM = 2015    # only project countries whose latest data is from 2015 or later
+
+
+def map_for_year(rows, column, year):
+    """
+    Each country's USD share for one year of the map slider -> list of
+    {iso_num, country, share, data_year, kind}, where kind is "Actual" or "Projected".
+      - Up to a country's latest data: its reading for that year (or the closest earlier one,
+        at most MAX_GAP years before).
+      - After its latest data: the Trend scenario (or Steady if there's too little data),
+        only for countries with data from PROJECT_FROM or later.
+    """
+    by_country = {}
+    for r in rows:
+        if r[column] is not None:
+            by_country.setdefault(r["iso3"], []).append(r)
+    out = []
+    for iso3, country_rows in by_country.items():
+        points = sorted((r["year"], r[column]) for r in country_rows)
+        info = {"iso_num": country_rows[0]["iso_num"], "country": country_rows[0]["country"]}
+        last_year = points[-1][0]
+        if year <= last_year or (last_year < PROJECT_FROM and year - last_year <= MAX_GAP):
+            earlier = [p for p in points if year - MAX_GAP <= p[0] <= year]
+            if earlier:
+                out.append(dict(info, share=earlier[-1][1], data_year=earlier[-1][0], kind="Actual"))
+        elif last_year >= PROJECT_FROM:
+            paths = scenarios(points, [year])
+            path = paths.get("Trend") or paths["Steady"]
+            out.append(dict(info, share=path[year], data_year=last_year, kind="Projected"))
+    return sorted(out, key=lambda r: r["country"])
