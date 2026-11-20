@@ -35,7 +35,7 @@ from dotenv import load_dotenv
 
 import config
 import db
-from data import bigmac, cb_calendar, commodities, fx, fx_history
+from data import bigmac, cb_calendar, commodities, fx, fx_history, rate_updater
 from modules import accounts, brief, carry, drill, prices, routine, stats, usd_outlook, usd_trade
 
 load_dotenv()  # on your Mac: keys from .env. Online, Streamlit's "Secrets" provide them instead.
@@ -374,13 +374,19 @@ def page_usd():
 
     st.caption(f"Policy rates used: US {rates.get('USD')}% (Fed range midpoint), {country} "
                f"{rates.get(pick['pair'], 'n/a')}% (last changed {rate_dates.get(pick['pair'], 'n/a')}), "
-               f"from data/policy_rates.csv (cbrates.com, checked Nov 2026; edit the file when banks move). "
+               f"from data/policy_rates.csv (updated automatically from BIS central bank data; last checked {usd_outlook.rates_checked()}). "
                f"Fair value uses the latest Big Mac prices. Trend uses the last 5 years of monthly closes.")
 
 
 # ---------------------------------------------------------------------------
 # Page: carry trade and commodities
 # ---------------------------------------------------------------------------
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def update_policy_rates(day):
+    """Refresh data/policy_rates.csv from BIS at most every 6 hours (keeps the last rates on failure)."""
+    return rate_updater.update_rates_file()
+
 
 def stale_rates_check():
     """⏰ warnings when a central bank has met since data/policy_rates.csv was last checked."""
@@ -1002,5 +1008,6 @@ choice = st.sidebar.radio("Go to", list(PAGES), label_visibility="collapsed")
 st.sidebar.caption("Work through the pages top to bottom: Brief → Prices → Drill.")
 account_sidebar()
 st.sidebar.markdown("[Privacy](?page=privacy)")
+update_policy_rates(TODAY)
 PAGES[choice]()
 save_stay_cookie()

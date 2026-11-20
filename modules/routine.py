@@ -25,9 +25,11 @@ def rate_reminders(today=None):
     """Warnings that data/policy_rates.csv may be out of date (see carry.stale_rate_warnings)."""
     try:
         rates, _ = usd_outlook.load_policy_rates()
-        checked = usd_outlook.rates_checked()
+        checked = usd_outlook.rates_checked_by_country()
     except (OSError, KeyError, ValueError):
         return ["Couldn't read data/policy_rates.csv."]
+    if not checked:
+        return ["data/policy_rates.csv has no rates in it."]
     country_to_pair = {c["country"]: c["pair"] for c in config.CURRENCIES if c["pair"] in rates}
     return carry.stale_rate_warnings(checked, cb_calendar.load_meetings(), country_to_pair,
                                      today or date.today())

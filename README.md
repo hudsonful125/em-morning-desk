@@ -183,17 +183,28 @@ of how each currency has moved with each one over the last 5 years. The commodit
 US funds that track them (USO, CPER, SOYB), because futures prices aren't on Twelve Data's free
 plan. The brief lists the commodity moves too, and Claude may link one to an exporter's currency.
 
-## Keeping the interest rates up to date
+## Keeping the interest rates up to date (automatic)
 
-`data/policy_rates.csv` holds each central bank's rate. They change only when a bank meets,
-so the site and the brief warn you (⏰) when a bank in `data/central_bank_calendar.csv` has met
-since you last checked, or when nobody has checked for 45 days. To update:
+`data/policy_rates.csv` holds each central bank's rate. **It now updates itself**, from the
+free central bank policy rate data published by the BIS (Bank for International Settlements,
+https://data.bis.org/topics/CBPOL). No API key is needed. `data/rate_updater.py` does the work:
 
-1. Look up the new rate (for example on cbrates.com or the bank's own site).
-2. On GitHub, open `data/policy_rates.csv` and click the pencil icon to edit it.
-3. Change that bank's `rate` and `last_change`, then set the `checked` date on **every** row
-   to today (YYYY-MM-DD), even if the rate didn't change. That clears the warning.
-4. Click **Commit changes**. The website picks it up within a minute.
+- **Your Mac:** the 7:30am job updates the file before writing the brief. If a rate changed,
+  the email gets a "🏦 Policy rates updated" section.
+- **GitHub and the website:** every weekday a GitHub Action ("Update policy rates", in the
+  Actions tab) updates the file and saves it to GitHub, so the website redeploys with the new
+  rates. The website also checks BIS itself every 6 hours.
+
+Safety checks: a new rate must be between 0% and 100%, move by no more than 10 points, and be
+newer than the rate already in the file. Anything that fails, or no internet, keeps the last
+known rate and logs a warning. BIS publishes new data about once a week, so a decision shows
+up 2 to 7 days after the meeting. Until then the ⏰ reminder stays on for that bank.
+
+Can't wait for BIS? You can still type a rate in by hand (on GitHub, open the file, click the
+pencil, change `rate`, `last_change` and that row's `checked` to today, then **Commit changes**).
+The updater never replaces a rate you typed with older BIS data.
+
+Run the update by hand: `python3 -m data.rate_updater`
 
 ## The full routine, stats and saved briefs
 
@@ -235,7 +246,7 @@ app.py            the web dashboard (Streamlit)
 modules/routine.py builds one morning's brief (used by main.py, app.py and the schedule)
 modules/usd_outlook.py USD vs EM history (1M/1Y/5Y) and the long-term scenarios
 data/fx_history.py monthly rate history from Twelve Data (cached a week in cache/)
-data/policy_rates.csv central bank rates used by the Rate gap scenario (edit when banks move)
+data/policy_rates.csv central bank rates (updated automatically by data/rate_updater.py)
 modules/usd_trade.py the dollar's share of each country's trade (data/usd_invoicing.csv: Boz et al. 2025, CC BY-NC-SA 4.0)
 modules/carry.py  carry table, commodity links, stale-rate warnings
 data/commodities.py today's oil, copper and soybean fund moves

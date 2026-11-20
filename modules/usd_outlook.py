@@ -94,6 +94,12 @@ def rates_checked(path=RATES_PATH):
         return min(row["checked"] for row in csv.DictReader(f))
 
 
+def rates_checked_by_country(path=RATES_PATH):
+    """{"Brazil": "2026-11-19", ...}: the latest day each bank's rate is known to be right."""
+    with open(path, newline="", encoding="utf-8") as f:
+        return {row["country"]: row["checked"] for row in csv.DictReader(f)}
+
+
 def trend_path(spot, cagr_pct, years):
     return spot * (1 + cagr_pct / 100) ** years
 
